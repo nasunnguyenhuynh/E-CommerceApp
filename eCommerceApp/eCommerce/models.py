@@ -158,6 +158,9 @@ class Voucher(BaseModel):
     voucher_condition = models.ForeignKey(VoucherCondition, on_delete=models.CASCADE, default=None)
 
 
+# condition = models.OneToOneField(VoucherCondition, on_delete=models.CASCADE, related_name='voucher', null=True, blank=True)  # 1 Voucher has 1 VoucherCondition
+
+
 class UserVoucher(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     voucher = models.ForeignKey(Voucher, on_delete=models.CASCADE)
@@ -177,6 +180,9 @@ class Order(BaseModel):
     payment_method = models.OneToOneField(PaymentMethod, on_delete=models.SET_NULL, null=True, blank=True)
     shipping = models.OneToOneField(Shipping, on_delete=models.SET_NULL, null=True, blank=True)
 
+    # def __str__(self):
+    #     return f"Order {self.id} - User {self.user}"
+
 
 class OrderDetail(models.Model):
     quantity = models.IntegerField()
@@ -185,7 +191,14 @@ class OrderDetail(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     color = models.ForeignKey(ProductColor, on_delete=models.CASCADE)
 
+    # color = models.ForeignKey(ProductColor, on_delete=models.SET_NULL, null=True, blank=True)  # 1 OrderDetail has 1 ProductColor
+    # def __str__(self):
+    #     return f"Order {self.order.id} - Product {self.product.name}"
+
 
 class OrderVoucher(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     voucher = models.ForeignKey(Voucher, on_delete=models.CASCADE)
+
+    # def __str__(self):
+    #     return f"Order {self.order.id} - Voucher {self.voucher.code}"
