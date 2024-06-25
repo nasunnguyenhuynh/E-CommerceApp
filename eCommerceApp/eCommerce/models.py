@@ -93,7 +93,7 @@ class ProductDetail(models.Model):
     material = models.CharField(max_length=50)
     manufactory = models.CharField(max_length=50)
     description = RichTextField()
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='product_detail')
+    product = models.OneToOneField(Product, on_delete=models.CASCADE, related_name='product_detail')
 
 
 class ProductColor(models.Model):  # ProductColor can be duplicate
@@ -114,9 +114,9 @@ def validate_video_size(value):
             raise ValidationError("Hông được đăng video quá 30MB !")
 
 
-class ProductVideos(models.Model):
-    url_video = CloudinaryField(resource_type='video', allowed_formats=['mp4', 'webm'],
-                                validators=[validate_video_size])
+class ProductVideo(models.Model):
+    video = CloudinaryField(resource_type='video', allowed_formats=['mp4', 'webm'],
+                            validators=[validate_video_size])
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='product_video')
 
 
