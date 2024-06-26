@@ -44,7 +44,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
         exclude = ['product']
 
 
-class ProductSerializer(serializers.ModelSerializer):
+class ProductInfoSerializer(serializers.ModelSerializer):
     details = ProductDetailSerializer(source='product_detail')  # used for OneToOne
     images = ProductImageSerializer(source='product_image', many=True)  # used for ManyToOne
     colors = ProductColorSerializer(source='product_color', many=True)  # used for ManyToOne
@@ -52,4 +52,11 @@ class ProductSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Product
-        fields = ["id", "name", "price", "sold", "rating", "category", "details", "images", "colors", "videos"]
+        fields = ["id", "name", "price", "sold", "rating", "category", "shop_id", "details", "images", "colors",
+                  "videos"]
+
+
+class ProductSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Product
+        fields = ["id", "name", "price", "sold", "rating", "category", "shop_id"]

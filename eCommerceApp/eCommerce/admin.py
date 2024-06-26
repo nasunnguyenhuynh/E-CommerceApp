@@ -7,7 +7,8 @@ from ckeditor_uploader.widgets import CKEditorUploadingWidget
 
 
 class UserAdmin(admin.ModelAdmin):
-    list_display = ['id', 'username', 'email', 'birthday', 'is_active', 'is_vendor', 'is_superuser', 'user_img']
+    list_display = ['id', 'user_img', 'username', 'email', 'birthday',
+                    'is_active', 'is_vendor', 'is_staff', 'is_superuser', ]
 
     def get_search_fields(self, request):
         if request.user.is_superuser:
