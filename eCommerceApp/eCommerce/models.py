@@ -55,14 +55,14 @@ class Shop(BaseModel):  # Shop cant be duplicate
     following = models.IntegerField(default=0)
     followed = models.IntegerField(default=0)
     rated = models.FloatField(null=True, default=0)
-    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='user_shop')
 
     def __str__(self):
         return self.name
 
 
 class ShopConfirmationStatus(models.Model):
-    status = models.CharField(max_length=10)
+    status = models.CharField(max_length=50)
 
     def __str__(self):
         return self.status
@@ -70,11 +70,11 @@ class ShopConfirmationStatus(models.Model):
 
 class ShopConfirmation(BaseModel):
     citizen_identification_image = CloudinaryField()
-    shop_name = models.CharField(max_length=100, unique=True)
+    shop_name = models.CharField(max_length=50)
     shop_image = CloudinaryField()
-    shop_description = RichTextField()
-    user = models.OneToOneField(User, on_delete=models.CASCADE)
-    status = models.OneToOneField(ShopConfirmationStatus, on_delete=models.CASCADE)
+    shop_description = RichTextField(blank=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_shopconfirmation')
+    status = models.ForeignKey(ShopConfirmationStatus, on_delete=models.CASCADE, related_name='shop_confirmationstatus')
 
 
 class Product(BaseModel):  # Product can be duplicate

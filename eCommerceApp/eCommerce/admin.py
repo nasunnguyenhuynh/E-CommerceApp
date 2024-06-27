@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.utils.html import mark_safe
 from django.contrib.auth.hashers import make_password
+from django.contrib.auth.models import Group
 from .models import *
 from django import forms
 from ckeditor_uploader.widgets import CKEditorUploadingWidget
@@ -33,7 +34,7 @@ class UserAdmin(admin.ModelAdmin):
         if user.avatar:
             return mark_safe(f"<img width='100' height='100' src='{user.avatar.url}' />")
 
-    def get_queryset(self, request):
+    def get_queryset(self, request):  # display all things belonging to the user
         qs = super(UserAdmin, self).get_queryset(request)
         if request.user.is_superuser:
             return qs
@@ -51,6 +52,50 @@ class CategoryAdmin(admin.ModelAdmin):
     list_display = ['id', 'name', 'active']
     search_fields = ['id', 'name']
     list_filter = ['id', 'name']
+
+
+class ShopConfirmationStatusAdmin(admin.ModelAdmin):
+    list_display = ['id', 'status']
+    search_fields = ['id', 'status']
+    list_filter = ['id', 'status']
+
+
+class ShopConfirmationAdmin(admin.ModelAdmin):
+    list_display = ['id', 'shop_name', 'shop_img', 'user', 'status']
+    search_fields = ['id', 'shop_name', 'status']
+    list_filter = ['status']
+
+    def shop_img(self, shopconfirmation):
+        if shopconfirmation.shop_image:
+            return mark_safe(f"<img width='100' height='100' src='{shopconfirmation.shop_image.url}' />")
+
+    def ci_img(self, shopconfirmation):
+        if shopconfirmation.citizen_identification_image:
+            return mark_safe(
+                f"<img width='100' height='100' src='{shopconfirmation.citizen_identification_image.url}' />")
+
+    ci_img.short_description = 'citizen_identification_image'  # custom field_name display when view details
+
+    def get_readonly_fields(self, request, obj=None):  # display in view detail
+        if not request.user.is_superuser:
+            if request.user.groups.filter(name='Shop Confirmation').exists():
+                return ['user', 'ci_img', 'shop_name', 'shop_img']
+        return super().get_readonly_fields(request, obj)
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        vendor_group, created = Group.objects.get_or_create(name='Vendors')
+        if obj.status.status == 'Successful' and obj.active:
+            obj.user.groups.add(vendor_group)
+            obj.user.is_staff = True
+            obj.user.is_vendor = True
+        else:
+            if obj.status.status == 'Failed':
+                obj.active = False
+            obj.user.groups.remove(vendor_group)
+            obj.user.is_staff = False
+            obj.user.is_vendor = False
+        obj.user.save()
 
 
 class ShopForm(forms.ModelForm):
@@ -159,8 +204,10 @@ class ProductAdmin(admin.ModelAdmin):
         return qs.filter(shop__user=request.user)  # join shop & user table
 
     def save_model(self, request, obj, form, change):
-        if not obj.pk:
-            obj.user = request.user
+        if request.user.is_superuser:
+            obj.shop = Shop.objects.get(id=obj.shop_id)
+        # Get shop from current user
+        obj.shop = Shop.objects.get(user_id=request.user.id)
         super().save_model(request, obj, form, change)
         # ex save_model of class ProductAdmin to store Product to database
 
@@ -276,6 +323,8 @@ class ProductVideoAdmin(admin.ModelAdmin):
 admin.site.register(User, UserAdmin)
 admin.site.register(Category, CategoryAdmin)
 admin.site.register(Shop, ShopAdmin)
+admin.site.register(ShopConfirmationStatus, ShopConfirmationStatusAdmin)
+admin.site.register(ShopConfirmation, ShopConfirmationAdmin)
 
 admin.site.register(Product, ProductAdmin)
 admin.site.register(ProductDetail, ProductDetailAdmin)

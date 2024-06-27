@@ -2,6 +2,30 @@ from .models import *
 from rest_framework import serializers
 
 
+class UserSerializer(serializers.ModelSerializer):
+    def create(self, validated_data):  # hash password be4 store in database
+        data = validated_data.copy()
+        user = User(**data)  # unpacking dict and pass them as arg into init model User
+        user.set_password(user.password)
+        user.save()
+
+        return user
+
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'password', 'avatar', 'first_name', 'last_name', 'email', 'birthday', 'is_vendor']
+        extra_kwargs = {  # prevent the password field returned when creating a new user
+            'password': {
+                'write_only': 'true'
+            }
+        }
+
+    def to_representation(self, instance):  # Override a field
+        rep = super().to_representation(instance)
+        rep['avatar'] = instance.avatar.url if instance.avatar and hasattr(instance.avatar, 'url') else None
+        return rep
+
+
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
@@ -17,6 +41,23 @@ class ShopSerializer(serializers.ModelSerializer):
         rep = super().to_representation(instance)
         rep['image'] = instance.image.url
 
+        return rep
+
+
+class ShopConfirmationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShopConfirmation
+        fields = ['citizen_identification_image', 'shop_name', 'shop_image']
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        rep['created_date'] = instance.created_date
+        rep['updated_date'] = instance.updated_date
+        rep['status'] = instance.status.status  # status is a ForeignKey to the ShopConfirmationStatus model
+        rep['user'] = instance.user.username  # user is a ForeignKey to the User model
+        rep['citizen_identification_image'] = instance.citizen_identification_image.url
+        rep['shop_name'] = instance.shop_name
+        rep['shop_image'] = instance.shop_image.url
         return rep
 
 
