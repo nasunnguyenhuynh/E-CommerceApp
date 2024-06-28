@@ -24,6 +24,7 @@ class UserAddress(models.Model):
 
 class UserPhone(models.Model):
     phone = models.CharField(max_length=10)
+    default = models.BooleanField(default=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_phone')
 
 
@@ -120,6 +121,20 @@ class ProductVideo(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='product_video')
 
 
+class Storage(BaseModel):
+    address = models.CharField(max_length=100)
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='shop_storage')
+
+    def __str__(self):
+        return self.address
+
+
+class StorageProduct(models.Model):
+    storage = models.ForeignKey(Storage, on_delete=models.CASCADE, related_name='storage_product')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='product_storage')
+    remain = models.IntegerField(default=0)
+
+
 class PaymentMethod(BaseModel):
     name = models.CharField(max_length=15)
 
@@ -141,11 +156,11 @@ class VoucherType(models.Model):
 
 
 class VoucherCondition(models.Model):
-    min_order_amount = models.FloatField(null=True, blank=True)
+    min_order_amount = models.FloatField(null=True, blank=True, default=0)
     max_uses = models.IntegerField(null=True, blank=True, default=None)
-    categories = models.ManyToManyField(Category, blank=True)
-    payment_method = models.ManyToManyField(PaymentMethod, blank=True)
-    shipping = models.ManyToManyField(Shipping, blank=True)
+    categories = models.OneToOneField(Category, on_delete=models.PROTECT, null=True, blank=True)
+    payment_method = models.OneToOneField(PaymentMethod, on_delete=models.PROTECT, null=True, blank=True)
+    shipping = models.OneToOneField(Shipping, on_delete=models.PROTECT, null=True, blank=True)
 
 
 class Voucher(BaseModel):
@@ -154,11 +169,8 @@ class Voucher(BaseModel):
     discount = models.FloatField()
     start_date = models.DateTimeField()
     end_date = models.DateTimeField()
-    voucher_type = models.ForeignKey(VoucherType, on_delete=models.CASCADE, default=None)
-    voucher_condition = models.ForeignKey(VoucherCondition, on_delete=models.CASCADE, default=None)
-
-
-# condition = models.OneToOneField(VoucherCondition, on_delete=models.CASCADE, related_name='voucher', null=True, blank=True)  # 1 Voucher has 1 VoucherCondition
+    voucher_type = models.ForeignKey(VoucherType, on_delete=models.CASCADE, null=True, blank=True)
+    voucher_condition = models.ForeignKey(VoucherCondition, on_delete=models.CASCADE, null=True, blank=True)
 
 
 class UserVoucher(models.Model):
@@ -176,9 +188,9 @@ class OrderStatus(models.Model):
 class Order(BaseModel):
     total_amount = models.FloatField()
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    status = models.OneToOneField(OrderStatus, on_delete=models.SET_NULL, null=True, blank=True)
-    payment_method = models.OneToOneField(PaymentMethod, on_delete=models.SET_NULL, null=True, blank=True)
-    shipping = models.OneToOneField(Shipping, on_delete=models.SET_NULL, null=True, blank=True)
+    status = models.ForeignKey(OrderStatus, on_delete=models.PROTECT)
+    payment_method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT)
+    shipping = models.ForeignKey(Shipping, on_delete=models.PROTECT)
 
     # def __str__(self):
     #     return f"Order {self.id} - User {self.user}"
@@ -189,9 +201,10 @@ class OrderDetail(models.Model):
     price = models.FloatField()
     order = models.ForeignKey(Order, on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
-    color = models.ForeignKey(ProductColor, on_delete=models.CASCADE)
+    color = models.ForeignKey(ProductColor, on_delete=models.SET_NULL, null=True, blank=True)
+    user_phone = models.ForeignKey(UserPhone, on_delete=models.PROTECT)
+    user_address = models.ForeignKey(UserAddress, on_delete=models.PROTECT)
 
-    # color = models.ForeignKey(ProductColor, on_delete=models.SET_NULL, null=True, blank=True)  # 1 OrderDetail has 1 ProductColor
     # def __str__(self):
     #     return f"Order {self.order.id} - Product {self.product.name}"
 

@@ -12,17 +12,16 @@ import cloudinary.uploader
 
 class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
     queryset = User.objects.filter(is_active=True)
-    parser_classes = [parsers.MultiPartParser]  # to receive file
 
     def get_permissions(self):
-        if self.action in ['current_user', 'shop_confirmation', 'get_shop', 'get_user_ratings',
-                           'get_post_addresses', 'get_post_orders']:
+        if self.action in ['current_user', 'shop_confirmation', 'orders']:
             return [permissions.IsAuthenticated()]
 
         return [permissions.AllowAny(), ]
 
     @action(methods=['get', 'patch'], url_path='current-user', detail=False)  # /users/current-user/
     def current_user(self, request):
+        self.parser_classes = [parsers.MultiPartParser]
         user = request.user
         if request.method.__eq__('PATCH'):  # PATCH must be uppercase
             restricted_keys = ['is_superuser', 'is_staff', 'is_active', 'is_vendor']
@@ -38,6 +37,7 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
     @action(methods=['get', 'post', 'patch'], url_path='shop-confirmation', detail=True)
     # /users/{user_id}/shop-confirmation/
     def shop_confirmation(self, request, pk=None):  # POST, GET, PATCH;
+        self.parser_classes = [parsers.MultiPartParser]
         if int(pk) != request.user.id:  # Check user_id at url and user_id of request are match?
             return Response({'detail': 'You do not have permission to perform this action.'},
                             status=status.HTTP_403_FORBIDDEN)
@@ -51,7 +51,7 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                 existed_form = ShopConfirmation.objects.filter(user_id=request.user.id, active=True).first()
                 if existed_form:  # Check ShopConfirmation sent be4
                     if existed_form.status_id == 1:
-                        return Response({'message': 'Your request is being reviewed.',},
+                        return Response({'message': 'Your request is being reviewed.'},
                                         status=status.HTTP_400_BAD_REQUEST)
                     elif existed_form.status_id == 2:
                         return Response({'error': 'You cannot create a new shop.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -83,6 +83,102 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                 serializer.save()
                 return Response(serializer.data, status=status.HTTP_200_OK)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(methods=['post'], url_path='orders', detail=True)  # /users/{user_id}/orders/
+    def orders(self, request, pk=None):
+        if request.method == "POST":
+            # Difference of get & filter
+            # Require user provide phone&address be4 send Req
+            # Check voucher expired | satisfied condition ?
+            # total_amount = (product_price * product_quantity) + shipping + voucher
+
+            """ Sample JSON sent from client
+                {   
+                    "total_amount": 1299000,
+                    "products": [
+                        {
+                            "id": 1,
+                            "color": 1,
+                            "quantity": 2
+                        },
+                        {
+                            "id": 1,
+                            "color": 2,
+                            "quantity": 3
+                        },
+                        {
+                            "id": 6,
+                            "color": null,
+                            "quantity": 3 
+                        }
+                    ],
+                    "vouchers": [1],
+                    "payment_method": 1,
+                    "shipping": 3
+                }
+            """
+
+            try:
+                # USER
+                user = User.objects.get(id=pk, is_active=True)
+
+                # USER ADDRESS
+                user_address = UserAddress.objects.get(user_id=pk, default=True)
+
+                user_phone = UserPhone.objects.get(user_id=pk, default=True)
+
+                # ORDER STATUS
+                order_status = OrderStatus.objects.get(id=1)
+
+                # PAYMENT METHOD
+                payment_method = PaymentMethod.objects.get(id=request.data.get('payment_method'))
+
+                # SHIPPING
+                shipping = Shipping.objects.get(id=request.data.get('shipping'))
+
+                try:  # Create Order
+                    order = Order.objects.create(total_amount=request.data.get('total_amount'),
+                                                 user=user,
+                                                 status=order_status,
+                                                 payment_method=payment_method,
+                                                 shipping=shipping)
+                except Exception as e:
+                    print(f"Error: {e}")
+                    return Response({'error': "There was an error while creating Order, plz try again later"},
+                                    status=status.HTTP_400_BAD_REQUEST)
+
+                try:  # Create OrderDetail
+                    for product in request.data.get('products'):
+                        if product['color']:
+                            OrderDetail.objects.create(quantity=product['quantity'],
+                                                       price=Product.objects.get(id=product['id']).price,
+                                                       order=order,
+                                                       product=Product.objects.get(id=product['id']),
+                                                       color=ProductColor.objects.get(id=product['color']),
+                                                       user_phone=user_phone,
+                                                       user_address=user_address)
+                        else:
+                            OrderDetail.objects.create(quantity=product['quantity'],
+                                                       price=Product.objects.get(id=product['id']).price,
+                                                       order=order,
+                                                       product=Product.objects.get(id=product['id']),
+                                                       user_phone=user_phone,
+                                                       user_address=user_address)
+                except Exception as e:
+                    print(f"Error: {e}")
+                    order.delete()  # Remove out of db
+                    return Response({'error': "There was an error while creating OrderDetail, plz try again later"},
+                                    status=status.HTTP_400_BAD_REQUEST)
+                for voucher in request.data.get('vouchers'):
+                    if Voucher.objects.filter(id=voucher).first():
+                        OrderVoucher.objects.create(user=user, voucher=Voucher.objects.get(id=voucher))
+
+            except Exception as e:
+                print(f"Error: {e}")
+                return Response({'error': "There was an error occurred, plz try again later"},
+                                status=status.HTTP_400_BAD_REQUEST)
+            else:
+                return Response({'mee': "OKE"}, status=status.HTTP_201_CREATED)
 
 
 class CategoryViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /categories/

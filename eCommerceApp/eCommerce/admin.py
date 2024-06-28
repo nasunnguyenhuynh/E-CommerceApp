@@ -48,12 +48,23 @@ class UserAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
 
 
+class UserAdressAdmin(admin.ModelAdmin):
+    list_display = ['id', 'address', 'default', 'user']
+    list_filter = ['default', 'user']
+
+
+class UserPhoneAdmin(admin.ModelAdmin):
+    list_display = ['id', 'phone', 'default', 'user']
+    list_filter = ['default', 'user']
+
+
 class CategoryAdmin(admin.ModelAdmin):
     list_display = ['id', 'name', 'active']
     search_fields = ['id', 'name']
     list_filter = ['id', 'name']
 
 
+#                                              >>> ShopAdmin <<<
 class ShopConfirmationStatusAdmin(admin.ModelAdmin):
     list_display = ['id', 'status']
     search_fields = ['id', 'status']
@@ -83,12 +94,21 @@ class ShopConfirmationAdmin(admin.ModelAdmin):
         return super().get_readonly_fields(request, obj)
 
     def save_model(self, request, obj, form, change):
+        print('obj ', obj.user)
         super().save_model(request, obj, form, change)
         vendor_group, created = Group.objects.get_or_create(name='Vendors')
         if obj.status.status == 'Successful' and obj.active:
             obj.user.groups.add(vendor_group)
             obj.user.is_staff = True
             obj.user.is_vendor = True
+
+            if not hasattr(obj.user, 'user_shop'):  # Create new shop
+                Shop.objects.create(
+                    name=obj.shop_name,
+                    image=obj.shop_image,
+                    user=obj.user,
+                    description=obj.shop_description
+                )
         else:
             if obj.status.status == 'Failed':
                 obj.active = False
@@ -141,6 +161,43 @@ class ShopAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)  # ex save_model of class ShopAdmin to store Shop to database
 
 
+#                                              >>> StorageAdmin <<<
+class StorageAdmin(admin.ModelAdmin):
+    list_display = ['id', 'address', 'shop']
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(shop__user=request.user)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "shop":  # FK field named shop
+            if not request.user.is_superuser:  # Filter shop belongs to current user
+                kwargs["queryset"] = Shop.objects.filter(user=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
+class StorageProductAdmin(admin.ModelAdmin):
+    list_display = ['storage', 'product', 'remain']
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(storage__shop__user=request.user)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "storage":  # Filter storage belongs to current user
+            if not request.user.is_superuser:
+                kwargs["queryset"] = Storage.objects.filter(shop__user=request.user)
+        if db_field.name == "product":  # Filter product belongs to current user
+            if not request.user.is_superuser:
+                kwargs["queryset"] = Product.objects.filter(shop__user=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
+#                                              >>> ProductAdmin <<<
 class ProductDetailInline(admin.StackedInline):
     model = ProductDetail
     min_num = 1
@@ -204,10 +261,8 @@ class ProductAdmin(admin.ModelAdmin):
         return qs.filter(shop__user=request.user)  # join shop & user table
 
     def save_model(self, request, obj, form, change):
-        if request.user.is_superuser:
-            obj.shop = Shop.objects.get(id=obj.shop_id)
-        # Get shop from current user
-        obj.shop = Shop.objects.get(user_id=request.user.id)
+        if request.user.is_vendor:  # Fix shop_id is null when create new product at vendor_site
+            obj.shop = Shop.objects.get(user_id=request.user.id)
         super().save_model(request, obj, form, change)
         # ex save_model of class ProductAdmin to store Product to database
 
@@ -320,17 +375,69 @@ class ProductVideoAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
 
 
+#                                              >>> PaymentAdmin <<<
+class PaymentMethodAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name']
+
+
+#                                              >>> ShippingAdmin <<<
+class ShippingAdmin(admin.ModelAdmin):
+    list_display = ['name', 'fee']
+
+
+#                                              >>> VoucherAdmin <<<
+class VoucherTypeAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name', 'key']
+    list_filter = ['name']
+
+
+class VoucherConditionAdmin(admin.ModelAdmin):
+    list_display = ['id', 'min_order_amount', 'max_uses', 'categories', 'payment_method', 'shipping']
+
+
+class VoucherAdmin(admin.ModelAdmin):
+    list_display = ['name', 'code', 'discount', 'start_date', 'end_date', 'voucher_type', 'voucher_condition']
+
+
+class OrderStatusAdmin(admin.ModelAdmin):
+    list_display = ['id', 'status']
+
+
+class OrderAdmin(admin.ModelAdmin):
+    list_display = ['id', 'total_amount', 'user', 'status', 'payment_method', 'shipping']
+
+
+class OrderDetailAdmin(admin.ModelAdmin):
+    list_display = ['id', 'quantity', 'price', 'order', 'product', 'color', 'user_phone', 'user_address']
+
+
 admin.site.register(User, UserAdmin)
+admin.site.register(UserAddress, UserAdressAdmin)
+admin.site.register(UserPhone, UserPhoneAdmin)
 admin.site.register(Category, CategoryAdmin)
+
 admin.site.register(Shop, ShopAdmin)
 admin.site.register(ShopConfirmationStatus, ShopConfirmationStatusAdmin)
 admin.site.register(ShopConfirmation, ShopConfirmationAdmin)
+
+admin.site.register(Storage, StorageAdmin)
+admin.site.register(StorageProduct, StorageProductAdmin)
 
 admin.site.register(Product, ProductAdmin)
 admin.site.register(ProductDetail, ProductDetailAdmin)
 admin.site.register(ProductImage, ProductImageAdmin)
 admin.site.register(ProductColor, ProductColorAdmin)
 admin.site.register(ProductVideo, ProductVideoAdmin)
+
+admin.site.register(PaymentMethod, PaymentMethodAdmin)
+admin.site.register(Shipping, ShippingAdmin)
+admin.site.register(VoucherType, VoucherTypeAdmin)
+admin.site.register(VoucherCondition, VoucherConditionAdmin)
+admin.site.register(Voucher, VoucherAdmin)
+
+admin.site.register(OrderStatus, OrderStatusAdmin)
+admin.site.register(Order, OrderAdmin)
+admin.site.register(OrderDetail, OrderDetailAdmin)
 
 # from django.contrib.auth.models import Group
 #

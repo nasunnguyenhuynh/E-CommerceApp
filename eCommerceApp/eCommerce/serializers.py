@@ -47,7 +47,7 @@ class ShopSerializer(serializers.ModelSerializer):
 class ShopConfirmationSerializer(serializers.ModelSerializer):
     class Meta:
         model = ShopConfirmation
-        fields = ['citizen_identification_image', 'shop_name', 'shop_image']
+        fields = ['citizen_identification_image', 'shop_name', 'shop_image', 'shop_description']
 
     def to_representation(self, instance):
         rep = super().to_representation(instance)
@@ -55,6 +55,7 @@ class ShopConfirmationSerializer(serializers.ModelSerializer):
         rep['updated_date'] = instance.updated_date
         rep['status'] = instance.status.status  # status is a ForeignKey to the ShopConfirmationStatus model
         rep['user'] = instance.user.username  # user is a ForeignKey to the User model
+        rep['shop_description'] = instance.shop_description
         rep['citizen_identification_image'] = instance.citizen_identification_image.url
         rep['shop_name'] = instance.shop_name
         rep['shop_image'] = instance.shop_image.url
@@ -101,3 +102,28 @@ class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = ["id", "name", "price", "sold", "rating", "category", "shop_id"]
+
+
+class OrderDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OrderDetail
+        fields = ['product', 'color', 'quantity']
+
+
+class OrderSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Order
+        fields = ['total_amount', 'user', 'status', 'payment_method', 'shipping']
+
+
+class OrderVoucherSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OrderVoucher
+        fields = ['voucher']
+
+# Lấy thông tin sản phẩm và voucher từ dữ liệu yêu cầu.
+# Lấy thông tin UserPhone và UserAddress mặc định từ cơ sở dữ liệu.
+# Tạo đối tượng Order.
+# Tính tổng số tiền (total_amount) dựa trên giá và số lượng của các sản phẩm.
+# Tạo các đối tượng OrderDetail cho mỗi sản phẩm và màu sắc.
+# Tạo các đối tượng OrderVoucher cho mỗi voucher.
