@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 load_dotenv()  # take environment variables from .env.
 import cloudinary
+
 cloudinary.config(
     cloud_name=os.getenv('cloud_name'),
     api_key=os.getenv('api_key'),
@@ -34,7 +35,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-yo*+iw@n0mfbopwz359120z7x9453zuzaslic*@f&#8ffwpo@4'
+SECRET_KEY = os.getenv('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -152,3 +153,11 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# VNPAY CONFIG
+VNPAY_TMN_CODE = os.getenv('VNPAY_TMN_CODE')  # Website ID in VNPAY System, get from config
+VNPAY_HASH_SECRET_KEY = os.getenv('VNPAY_HASH_SECRET_KEY')  # Secret key for create checksum,get from config
+VNPAY_RETURN_URL = 'http://localhost:8000/payment_return'  # get from config
+VNPAY_PAYMENT_URL = 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html'  # get from config
+VNPAY_API_URL = 'https://sandbox.vnpayment.vn/merchant_webapi/api/transaction'
+

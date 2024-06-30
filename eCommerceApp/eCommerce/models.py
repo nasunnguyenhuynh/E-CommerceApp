@@ -215,3 +215,12 @@ class OrderVoucher(models.Model):
 
     # def __str__(self):
     #     return f"Order {self.order.id} - Voucher {self.voucher.code}"
+
+
+class PaymentVNPAYDetail(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.CASCADE)
+    amount = models.FloatField(null=False, default=0)
+    order_desc = models.CharField(max_length=100)
+    vnp_TransactionNo = models.CharField(max_length=20)
+    vnp_ResponseCode = models.CharField(max_length=20)
+    vnp_PayDate = models.CharField(max_length=20)
