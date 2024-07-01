@@ -5,9 +5,6 @@ from cloudinary.models import CloudinaryField
 from django.core.exceptions import ValidationError
 
 
-# blank, null, default; ForeignKey
-
-
 class User(AbstractUser):
     avatar = CloudinaryField('image',
                              default='https://res.cloudinary.com/diwxda8bi/image/upload/v1718958489'
@@ -18,14 +15,20 @@ class User(AbstractUser):
 
 class UserAddress(models.Model):
     address = models.CharField(max_length=150)
-    default = models.BooleanField(default=False)
+    default = models.BooleanField(default=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_address')
+
+    def __str__(self):
+        return self.address
 
 
 class UserPhone(models.Model):
     phone = models.CharField(max_length=10)
-    default = models.BooleanField(default=False)
+    default = models.BooleanField(default=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_phone')
+
+    def __str__(self):
+        return self.phone
 
 
 class BaseModel(models.Model):
@@ -55,7 +58,7 @@ class Shop(BaseModel):  # Shop cant be duplicate
     description = RichTextField()
     following = models.IntegerField(default=0)
     followed = models.IntegerField(default=0)
-    rated = models.FloatField(null=True, default=0)
+    shop_rating = models.FloatField(default=0)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='user_shop')
 
     def __str__(self):
@@ -82,7 +85,7 @@ class Product(BaseModel):  # Product can be duplicate
     name = models.CharField(max_length=150)
     price = models.FloatField(null=False)
     sold = models.IntegerField(default=0)
-    rating = models.FloatField(default=0)
+    product_rating = models.FloatField(default=0)
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name='product_category')
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='product_shop')
 
@@ -101,6 +104,9 @@ class ProductColor(models.Model):  # ProductColor can be duplicate
     name = models.CharField(max_length=50)
     image = CloudinaryField()
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='product_color')
+
+    def __str__(self):
+        return f"product_id:{self.product.id} / {self.name}"
 
 
 class ProductImage(models.Model):  # ProductImage can be duplicate
@@ -132,6 +138,8 @@ class Storage(BaseModel):
 class StorageProduct(models.Model):
     storage = models.ForeignKey(Storage, on_delete=models.CASCADE, related_name='storage_product')
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='product_storage')
+    product_color = models.ForeignKey(ProductColor, on_delete=models.CASCADE, blank=True, null=True,
+                                      related_name='product_color_storage')
     remain = models.IntegerField(default=0)
 
 
@@ -192,8 +200,8 @@ class Order(BaseModel):
     payment_method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT)
     shipping = models.ForeignKey(Shipping, on_delete=models.PROTECT)
 
-    # def __str__(self):
-    #     return f"Order {self.id} - User {self.user}"
+    def __str__(self):
+        return f"{self.id}"
 
 
 class OrderDetail(models.Model):
@@ -224,3 +232,35 @@ class PaymentVNPAYDetail(models.Model):
     vnp_TransactionNo = models.CharField(max_length=20)
     vnp_ResponseCode = models.CharField(max_length=20)
     vnp_PayDate = models.CharField(max_length=20)
+
+
+class Interaction(BaseModel):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+
+    class Meta:
+        abstract = True
+
+
+class Rating(Interaction):
+    star = models.IntegerField()
+    is_shop = models.BooleanField(default=False)
+
+
+class Comment(Interaction):
+    content = RichTextField()
+    is_shop = models.BooleanField(default=False, blank=True)
+    parent_comment = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True)
+    is_parent = models.BooleanField(default=True, blank=True)
+
+
+class ProductReview(Interaction):
+    comment = models.ForeignKey(Comment, on_delete=models.CASCADE)
+    rating = models.ForeignKey(Rating, on_delete=models.CASCADE)
+    order = models.ForeignKey(Order, on_delete=models.CASCADE)
+
+
+class ShopReview(Interaction):
+    comment = models.ForeignKey(Comment, on_delete=models.CASCADE)
+    rating = models.ForeignKey(Rating, on_delete=models.CASCADE)
+    order = models.ForeignKey(Order, on_delete=models.CASCADE)

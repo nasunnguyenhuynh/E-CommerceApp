@@ -111,9 +111,22 @@ class OrderDetailSerializer(serializers.ModelSerializer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
+    status = serializers.CharField(source='status.status')
+    payment_method = serializers.CharField(source='payment_method.name')
+    shipping = serializers.CharField(source='shipping.name')
+    product_review = serializers.SerializerMethodField()
+    shop_review = serializers.SerializerMethodField()
+
     class Meta:
         model = Order
-        fields = ['total_amount', 'user', 'status', 'payment_method', 'shipping']
+        fields = ['id', 'total_amount', 'user', 'status', 'payment_method', 'shipping', 'product_review', 'shop_review']
+
+    def get_product_review(self, obj):
+        return ProductReview.objects.filter(order=obj).first() \
+            if ProductReview.objects.filter(order=obj).first() else False
+    def get_shop_review(self, obj):
+        return ShopReview.objects.filter(order=obj).first() \
+            if ShopReview.objects.filter(order=obj).first() else False
 
 
 class OrderVoucherSerializer(serializers.ModelSerializer):

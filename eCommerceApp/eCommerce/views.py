@@ -84,7 +84,7 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                 return Response(serializer.data, status=status.HTTP_200_OK)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(methods=['post'], url_path='orders', detail=True)  # /users/{user_id}/orders/
+    @action(methods=['post', 'get'], url_path='orders', detail=True)  # /users/{user_id}/orders/
     def orders(self, request, pk=None):
         if request.method == "POST":
             # Difference of get & filter
@@ -149,21 +149,33 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
 
                 try:  # Create OrderDetail
                     for product in request.data.get('products'):
-                        if product['color']:
-                            OrderDetail.objects.create(quantity=product['quantity'],
-                                                       price=Product.objects.get(id=product['id']).price,
-                                                       order=order,
-                                                       product=Product.objects.get(id=product['id']),
-                                                       color=ProductColor.objects.get(id=product['color']),
-                                                       user_phone=user_phone,
-                                                       user_address=user_address)
-                        else:
-                            OrderDetail.objects.create(quantity=product['quantity'],
-                                                       price=Product.objects.get(id=product['id']).price,
-                                                       order=order,
-                                                       product=Product.objects.get(id=product['id']),
-                                                       user_phone=user_phone,
-                                                       user_address=user_address)
+                        storage_products = StorageProduct.objects.filter(product_id=product['id'])  # Shop 1-n Storage
+                        if not storage_products:  # product_id is existed ?
+                            return Response({'error': 'product not found'}, status=status.HTTP_400_BAD_REQUEST)
+                        for storage_product in storage_products:  # remain in store enough?
+                            if storage_product.remain >= product['quantity']:
+                                if product['color']:
+                                    OrderDetail.objects.create(quantity=product['quantity'],
+                                                               price=Product.objects.get(id=product['id']).price,
+                                                               order=order,
+                                                               product=Product.objects.get(id=product['id']),
+                                                               color=ProductColor.objects.get(id=product['color']),
+                                                               user_phone=user_phone,
+                                                               user_address=user_address)
+                                else:
+                                    OrderDetail.objects.create(quantity=product['quantity'],
+                                                               price=Product.objects.get(id=product['id']).price,
+                                                               order=order,
+                                                               product=Product.objects.get(id=product['id']),
+                                                               user_phone=user_phone,
+                                                               user_address=user_address)
+                                storage_product.remain -= product['quantity']
+                                storage_product.save()
+                                break
+                        if not OrderDetail.objects.filter(order_id=order.id):
+                            order.delete()
+                            return Response({'error': f'product {product} out of stock'},
+                                            status=status.HTTP_400_BAD_REQUEST)
                 except Exception as e:
                     print(f"Error: {e}")
                     order.delete()  # Remove out of db
@@ -178,7 +190,11 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                 return Response({'error': "There was an error occurred, plz try again later"},
                                 status=status.HTTP_400_BAD_REQUEST)
             else:
-                return Response({'mee': "OKE"}, status=status.HTTP_201_CREATED)
+                return Response({'success': "Your order has been created"}, status=status.HTTP_201_CREATED)
+        if request.method == "GET":
+            orders = self.get_object().order_set.select_related('user')
+            print(orders)
+            return Response(OrderSerializer(orders, many=True).data, status=status.HTTP_200_OK)
 
 
 class CategoryViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /categories/

@@ -34,13 +34,13 @@ class UserAdmin(admin.ModelAdmin):
         if user.avatar:
             return mark_safe(f"<img width='100' height='100' src='{user.avatar.url}' />")
 
-    def get_queryset(self, request):  # display all things belonging to the user
+    def get_queryset(self, request):  # display current user's profile (exc Admin)
         qs = super(UserAdmin, self).get_queryset(request)
         if request.user.is_superuser:
             return qs
         return qs.filter(id=request.user.id)
 
-    def save_model(self, request, obj, form, change):
+    def save_model(self, request, obj, form, change):  # create user at admins site
         # Check if the password is being set or changed
         if obj.password and not obj.password.startswith('pbkdf2_sha256$'):
             # Hash the password before saving
@@ -127,8 +127,8 @@ class ShopAdmin(admin.ModelAdmin):
 
     def get_list_display(self, request):
         if request.user.is_superuser:
-            return ['id', 'name', 'following', 'followed', 'rated', 'user_id', 'shop_image', 'active']
-        return ['id', 'name', 'following', 'followed', 'rated', 'shop_image', 'active']
+            return ['id', 'name', 'following', 'followed', 'shop_rating', 'user_id', 'shop_image', 'active']
+        return ['id', 'name', 'following', 'followed', 'shop_rating', 'shop_image', 'active']
 
     def get_search_fields(self, request):
         if request.user.is_superuser:
@@ -137,13 +137,13 @@ class ShopAdmin(admin.ModelAdmin):
 
     def get_list_filter(self, request):
         if request.user.is_superuser:
-            return ['active', 'rated']
+            return ['active', 'shop_rating']
         return []
 
     def get_readonly_fields(self, request, obj=None):  # display in view detail
         if request.user.is_superuser:
-            return ['shop_image', 'following', 'followed', 'rated']
-        return ['active', 'user', 'shop_image', 'following', 'followed', 'rated']
+            return ['shop_image', 'following', 'followed', 'shop_rating']
+        return ['active', 'user', 'shop_image', 'following', 'followed', 'shop_rating']
 
     def shop_image(self, shop):
         if shop.image:
@@ -156,7 +156,7 @@ class ShopAdmin(admin.ModelAdmin):
         return qs.filter(user=request.user)
 
     def save_model(self, request, obj, form, change):
-        if not obj.pk:
+        if not obj.pk:  # need to check this for automatic creation for the approved shop
             obj.user = request.user
         super().save_model(request, obj, form, change)  # ex save_model of class ShopAdmin to store Shop to database
 
@@ -179,7 +179,7 @@ class StorageAdmin(admin.ModelAdmin):
 
 
 class StorageProductAdmin(admin.ModelAdmin):
-    list_display = ['storage', 'product', 'remain']
+    list_display = ['storage', 'product', 'product_color', 'remain']
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -194,6 +194,9 @@ class StorageProductAdmin(admin.ModelAdmin):
         if db_field.name == "product":  # Filter product belongs to current user
             if not request.user.is_superuser:
                 kwargs["queryset"] = Product.objects.filter(shop__user=request.user)
+        if db_field.name == "product_color":  # Filter product_color belongs to current user
+            if not request.user.is_superuser:
+                kwargs["queryset"] = ProductColor.objects.filter(product__shop__user=request.user)
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
@@ -228,8 +231,8 @@ class ProductAdmin(admin.ModelAdmin):
 
     def get_list_display(self, request):
         if request.user.is_superuser:
-            return ["id", "name", "get_image", "price", "sold", "rating", 'category', 'shop', 'active']
-        return ["id", "name", "get_image", "price", "sold", "rating", 'category', 'active']
+            return ["id", "name", "get_image", "price", "sold", "product_rating", 'category', 'shop', 'active']
+        return ["id", "name", "get_image", "price", "sold", "product_rating", 'category', 'active']
 
     def get_search_fields(self, request):
         if request.user.is_superuser:
@@ -243,8 +246,8 @@ class ProductAdmin(admin.ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):  # display in view detail
         if request.user.is_superuser:
-            return ['rating', 'sold', "get_image"]
-        return ['rating', 'sold', "get_image", "active", "shop"]
+            return ['product_rating', 'sold', "get_image"]
+        return ['product_rating', 'sold', "get_image", "active", "shop"]
 
     def get_image(self, obj):
         first_image = obj.product_image.first()  # Get img by reverse query
@@ -271,16 +274,17 @@ class ProductDetailAdmin(admin.ModelAdmin):
     list_display = ["id", "material", "manufactory", "product_id", "product"]
     list_filter = ["id", "product_id"]
 
-    def get_readonly_fields(self, request, obj=None):  # display in view detail
-        if request.user.is_superuser:
-            return super(ProductDetailAdmin, self).get_readonly_fields(request)
-        return ["product"]
-
     def get_queryset(self, request):
         qs = super(ProductDetailAdmin, self).get_queryset(request)
         if request.user.is_superuser:
             return qs
         return qs.filter(product__shop__user=request.user)  # join product & shop & user table
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "product":
+            if not request.user.is_superuser:
+                kwargs["queryset"] = Product.objects.filter(shop__user=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def save_model(self, request, obj, form, change):
         if not obj.pk:
@@ -294,9 +298,7 @@ class ProductImageAdmin(admin.ModelAdmin):
     list_filter = ["id", "product_id"]
 
     def get_readonly_fields(self, request, obj=None):  # display in view detail
-        if request.user.is_superuser:
-            return ["get_image"]
-        return ["product", "get_image"]
+        return ["get_image"]
 
     def get_image(self, obj):
         if obj:
@@ -311,6 +313,12 @@ class ProductImageAdmin(admin.ModelAdmin):
             return qs
         return qs.filter(product__shop__user=request.user)  # join product & shop & user table
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "product":
+            if not request.user.is_superuser:
+                kwargs["queryset"] = Product.objects.filter(shop__user=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
     def save_model(self, request, obj, form, change):
         if not obj.pk:
             obj.user = request.user
@@ -322,9 +330,7 @@ class ProductColorAdmin(admin.ModelAdmin):
     list_filter = ["name", "product_id"]
 
     def get_readonly_fields(self, request, obj=None):  # display in view detail
-        if request.user.is_superuser:
-            return ["get_image"]
-        return ["product", "get_image"]
+        return ["get_image"]
 
     def get_image(self, obj):
         if obj:
@@ -339,6 +345,12 @@ class ProductColorAdmin(admin.ModelAdmin):
             return qs
         return qs.filter(product__shop__user=request.user)  # join product & shop & user table
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "product":
+            if not request.user.is_superuser:
+                kwargs["queryset"] = Product.objects.filter(shop__user=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
     def save_model(self, request, obj, form, change):
         if not obj.pk:
             obj.user = request.user
@@ -350,9 +362,7 @@ class ProductVideoAdmin(admin.ModelAdmin):
     list_filter = ["id", "product_id"]
 
     def get_readonly_fields(self, request, obj=None):  # display in view detail
-        if request.user.is_superuser:
-            return ["get_video"]
-        return ["product", "get_video"]
+        return ["get_video"]
 
     def get_video(self, obj):
         if obj:
@@ -368,6 +378,12 @@ class ProductVideoAdmin(admin.ModelAdmin):
         if request.user.is_superuser:
             return qs
         return qs.filter(product__shop__user=request.user)  # join product & shop & user table
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "product":
+            if not request.user.is_superuser:
+                kwargs["queryset"] = Product.objects.filter(shop__user=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def save_model(self, request, obj, form, change):
         if not obj.pk:
