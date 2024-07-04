@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'drf_yasg',
     'oauth2_provider',
     'corsheaders',
+    'debug_toolbar',
 ]
 
 REST_FRAMEWORK = {
@@ -76,6 +77,11 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 
     'corsheaders.middleware.CorsMiddleware',
+    'debug_toolbar.middleware.DebugToolbarMiddleware',
+]
+
+INTERNAL_IPS = [
+ '127.0.0.1'
 ]
 
 CORS_ALLOW_ALL_ORIGINS = True
