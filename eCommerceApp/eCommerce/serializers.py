@@ -32,6 +32,7 @@ class CategorySerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+#                                              >>> ShopSerializer <<<
 class ShopSerializer(serializers.ModelSerializer):
     class Meta:
         model = Shop
@@ -62,6 +63,7 @@ class ShopConfirmationSerializer(serializers.ModelSerializer):
         return rep
 
 
+#                                              >>> ProductSerializer <<<
 class ProductColorSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductColor
@@ -94,20 +96,21 @@ class ProductInfoSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Product
-        fields = ["id", "name", "price", "sold", "rating", "category", "shop_id", "details", "images", "colors",
+        fields = ["id", "name", "price", "sold", "product_rating", "category", "shop_id", "details", "images", "colors",
                   "videos"]
 
 
 class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
-        fields = ["id", "name", "price", "sold", "rating", "category", "shop_id"]
+        fields = ["id", "name", "price", "sold", "product_rating", "category", "shop_id"]
 
 
+#                                              >>> OrderSerializer <<<
 class OrderDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderDetail
-        fields = ['product', 'color', 'quantity']
+        fields = ['id', 'quantity', 'price', 'order_id', 'product_id', 'color_id']
 
 
 class OrderSerializer(serializers.ModelSerializer):
@@ -121,12 +124,22 @@ class OrderSerializer(serializers.ModelSerializer):
         model = Order
         fields = ['id', 'total_amount', 'user', 'status', 'payment_method', 'shipping', 'product_review', 'shop_review']
 
-    def get_product_review(self, obj):
-        return ProductReview.objects.filter(order=obj).first() \
-            if ProductReview.objects.filter(order=obj).first() else False
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.context.get('detail', False):
+            self.fields['order_details'] = serializers.SerializerMethodField()
+
+    def get_product_review(self, obj):  # All products in order rated? (Review can be only rating)
+        return True if Rating.objects.filter(order=obj, is_shop=False).count() == OrderDetail.objects.filter(
+            order=obj).count() else False
+
     def get_shop_review(self, obj):
-        return ShopReview.objects.filter(order=obj).first() \
-            if ShopReview.objects.filter(order=obj).first() else False
+        return True if Rating.objects.filter(order=obj, is_shop=True).count() == OrderDetail.objects.filter(
+            order=obj).count() else False
+
+    def get_order_details(self, obj):
+        order_details = OrderDetail.objects.filter(order=obj)
+        return OrderDetailSerializer(order_details, many=True).data
 
 
 class OrderVoucherSerializer(serializers.ModelSerializer):
@@ -134,9 +147,29 @@ class OrderVoucherSerializer(serializers.ModelSerializer):
         model = OrderVoucher
         fields = ['voucher']
 
-# Lấy thông tin sản phẩm và voucher từ dữ liệu yêu cầu.
-# Lấy thông tin UserPhone và UserAddress mặc định từ cơ sở dữ liệu.
-# Tạo đối tượng Order.
-# Tính tổng số tiền (total_amount) dựa trên giá và số lượng của các sản phẩm.
-# Tạo các đối tượng OrderDetail cho mỗi sản phẩm và màu sắc.
-# Tạo các đối tượng OrderVoucher cho mỗi voucher.
+
+#                                              >>> ReviewSerializer <<<
+class CommentSerializer(serializers.ModelSerializer):  # POST, PATCH reviews
+    class Meta:
+        model = Comment
+        fields = ['content', 'is_shop', 'parent_comment', 'is_parent']
+        extra_kwargs = {
+            'is_shop': {'required': False, 'default': False},
+            'parent_comment': {'required': False},
+            'is_parent': {'required': False, 'default': True}
+        }
+
+
+class RatingSerializer(serializers.ModelSerializer):  # POST, PATCH reviews
+    class Meta:
+        model = Rating
+        fields = ['star', 'is_shop']
+        extra_kwargs = {
+            'is_shop': {'required': False, 'default': False},
+        }
+
+
+class ProductReviewSerializer(serializers.Serializer):  # Custom serializer for POST reviews
+    comment = serializers.CharField(allow_blank=True)
+    rating = serializers.IntegerField(max_value=5, min_value=1)
+    order = serializers.IntegerField()

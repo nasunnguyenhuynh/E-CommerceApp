@@ -420,11 +420,11 @@ class OrderStatusAdmin(admin.ModelAdmin):
 
 
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ['id', 'total_amount', 'user', 'status', 'payment_method', 'shipping']
+    list_display = ['id', 'total_amount', 'user', 'status', 'payment_method', 'shipping', 'user_phone', 'user_address']
 
 
 class OrderDetailAdmin(admin.ModelAdmin):
-    list_display = ['id', 'quantity', 'price', 'order', 'product', 'color', 'user_phone', 'user_address']
+    list_display = ['id', 'quantity', 'price', 'order', 'product', 'color']
 
 
 admin.site.register(User, UserAdmin)

@@ -17,7 +17,7 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
         if self.action in ['current_user', 'shop_confirmation', 'orders']:
             return [permissions.IsAuthenticated()]
 
-        return [permissions.AllowAny(), ]
+        return [permissions.AllowAny()]
 
     @action(methods=['get', 'patch'], url_path='current-user', detail=False)  # /users/current-user/
     def current_user(self, request):
@@ -86,6 +86,9 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
 
     @action(methods=['post', 'get'], url_path='orders', detail=True)  # /users/{user_id}/orders/
     def orders(self, request, pk=None):
+        if int(pk) != request.user.id:  # Check user_id at url and user_id of request are match?
+            return Response({'detail': 'You do not have permission to perform this action.'},
+                            status=status.HTTP_403_FORBIDDEN)
         if request.method == "POST":
             # Difference of get & filter
             # Require user provide phone&address be4 send Req
@@ -141,7 +144,9 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                                                  user=user,
                                                  status=order_status,
                                                  payment_method=payment_method,
-                                                 shipping=shipping)
+                                                 shipping=shipping,
+                                                 user_phone=user_phone,
+                                                 user_address=user_address)
                 except Exception as e:
                     print(f"Error: {e}")
                     return Response({'error': "There was an error while creating Order, plz try again later"},
@@ -159,16 +164,12 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                                                                price=Product.objects.get(id=product['id']).price,
                                                                order=order,
                                                                product=Product.objects.get(id=product['id']),
-                                                               color=ProductColor.objects.get(id=product['color']),
-                                                               user_phone=user_phone,
-                                                               user_address=user_address)
+                                                               color=ProductColor.objects.get(id=product['color']))
                                 else:
                                     OrderDetail.objects.create(quantity=product['quantity'],
                                                                price=Product.objects.get(id=product['id']).price,
                                                                order=order,
-                                                               product=Product.objects.get(id=product['id']),
-                                                               user_phone=user_phone,
-                                                               user_address=user_address)
+                                                               product=Product.objects.get(id=product['id']))
                                 storage_product.remain -= product['quantity']
                                 storage_product.save()
                                 break
@@ -193,8 +194,16 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                 return Response({'success': "Your order has been created"}, status=status.HTTP_201_CREATED)
         if request.method == "GET":
             orders = self.get_object().order_set.select_related('user')
-            print(orders)
             return Response(OrderSerializer(orders, many=True).data, status=status.HTTP_200_OK)
+
+    @action(methods=['get'], url_path='orders/(?P<order_id>[^/.]+)', detail=True)  # /users/{user_id}/orders/{order_id}/
+    def order_detail(self, request, pk=None, order_id=None):
+        if int(pk) != request.user.id:
+            return Response({'detail': 'You do not have permission to perform this action.'},
+                            status=status.HTTP_403_FORBIDDEN)
+        order = get_object_or_404(Order, pk=order_id, user_id=pk)
+        serializer = OrderSerializer(order, context={'detail': True})
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class CategoryViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /categories/
@@ -219,19 +228,20 @@ class ShopViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /shops/
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class ProductViewSet(viewsets.ViewSet, generics.ListAPIView):  # GET /products/
+class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIView):  # GET /products/
     pagination_class = ProductPaginator
     queryset = Product.objects.filter(active=True)
+    serializer_class = ProductSerializer
 
-    def get_serializer_class(self):  # Change serializer_class base on request
-        if self.action == 'retrieve':
-            return ProductInfoSerializer
-        return ProductSerializer
+    def get_permissions(self):
+        if self.action in ['create_update_product_review', 'reply_comment']:
+            return [permissions.IsAuthenticated()]
+
+        return [permissions.AllowAny()]
 
     def retrieve(self, request, pk=None):  # GET /products/{product_id}
         product = get_object_or_404(self.queryset, pk=pk)
-        serializer = self.get_serializer(product)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(ProductInfoSerializer(product).data, status=status.HTTP_200_OK)
 
     def get_queryset(self):  # query with product_name, shop_name, product_price
         queries = self.queryset
@@ -264,6 +274,163 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView):  # GET /products/
 
         return queries
 
+    @action(methods=['post', 'patch', 'get'], url_path="reviews", detail=True)  # /products/{product_id}/reviews/
+    def create_update_product_review(self, request, pk=None):
+        if request.method == 'POST':
+            product = get_object_or_404(self.queryset, pk=pk)
+            serializer = ProductReviewSerializer(data=request.data)
+
+            if serializer.is_valid():
+                order_id = serializer.validated_data['order']
+                order = get_object_or_404(Order, pk=order_id)
+                if order.user != request.user:
+                    return Response({"error": "You do not have permission to review this order."},
+                                    status=status.HTTP_403_FORBIDDEN)
+
+                if not product.orderdetail_set.filter(order=order).exists():
+                    return Response({"error": "Product not in order."}, status=status.HTTP_400_BAD_REQUEST)
+
+                if Rating.objects.filter(order=order, is_shop=False, product=product).exists() or \
+                        Comment.objects.filter(order=order, is_shop=False, product=product).exists():
+                    return Response({"error": "Product has been reviewed"}, status=status.HTTP_400_BAD_REQUEST)
+
+                comment_data = serializer.validated_data['comment']
+                rating_data = serializer.validated_data['rating']
+
+                if comment_data:
+                    comment = Comment.objects.create(
+                        user=request.user,
+                        product=product,
+                        order=order,
+                        content=comment_data,
+                    )
+
+                if rating_data:
+                    rating = Rating.objects.create(
+                        user=request.user,
+                        product=product,
+                        order=order,
+                        star=rating_data
+                    )
+
+                return Response({
+                    "comment": CommentSerializer(comment).data if comment_data else None,
+                    "rating": RatingSerializer(rating).data
+                }, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        if request.method == 'PATCH':
+            product = get_object_or_404(self.queryset, pk=pk)
+
+            comment_data = request.data.get('comment')
+            rating_data = request.data.get('rating')
+            if comment_data:
+                comment_id = comment_data.get('id')
+                comment = get_object_or_404(Comment, id=comment_id)
+                if comment.user != request.user:
+                    return Response({"error": "You do not have permission to edit this comment."},
+                                    status=status.HTTP_403_FORBIDDEN)
+                comment_serializer = CommentSerializer(comment, data=comment_data, partial=True)
+                if comment_serializer.is_valid():
+                    comment_serializer.save()
+                else:
+                    return Response(comment_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+            if rating_data:
+                rating_id = rating_data.get('id')
+                rating = get_object_or_404(Rating, id=rating_id)
+                if rating.user != request.user:
+                    return Response({"error": "You do not have permission to edit this rating."},
+                                    status=status.HTTP_403_FORBIDDEN)
+                rating_serializer = RatingSerializer(rating, data=rating_data, partial=True)
+                if rating_serializer.is_valid():
+                    rating_serializer.save()
+                else:
+                    return Response(rating_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response({"message": "Review updated successfully."}, status=status.HTTP_200_OK)
+        if request.method == 'GET':
+            product = get_object_or_404(self.queryset, pk=pk)
+
+            comments = Comment.objects.filter(product=product, is_shop=False)
+            ratings = Rating.objects.filter(product=product, is_shop=False)
+
+            reviews = []
+            for rating in ratings:
+                comment = comments.filter(product=product, is_shop=False, order=rating.order).first()
+                reviews.append({
+                    "user": {
+                        "id": rating.user.id,
+                        "username": rating.user.username,
+                        "avatar": f"{rating.user.avatar.url}"
+                    },
+                    "comment": {
+                        "id": comment.id,
+                        "content": comment.content,
+                        "is_parent": comment.is_parent,
+                        "parent_comment": comment.parent_comment
+                    } if comment else None,
+                    "rating": {
+                        "id": rating.id,
+                        "star": rating.star
+                    }
+                })
+
+            return Response(reviews, status=status.HTTP_200_OK)
+
+    @action(methods=['post', 'patch', 'delete'], url_path="comment", detail=True)  # /products/{product_id}/comment/
+    def comment(self, request, pk=None):
+        if request.method == 'POST':
+            product = get_object_or_404(self.queryset, pk=pk)
+            serializer = CommentSerializer(data=request.data)
+            if serializer.is_valid():
+                parent_comment = serializer.validated_data['parent_comment'] if request.data['parent_comment'] else None
+                content = serializer.validated_data['content']
+
+                if parent_comment:
+                    comment = get_object_or_404(Comment, id=parent_comment.id)
+                    comment.is_parent = True
+                    comment.save()
+
+                comment = Comment.objects.create(
+                    user=request.user,
+                    product=product,
+                    content=content,
+                    parent_comment=parent_comment,
+                    order=parent_comment.order if parent_comment and parent_comment.order else None
+                )
+                return Response(CommentSerializer(comment).data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        if request.method == 'PATCH':
+            product = get_object_or_404(self.queryset, pk=pk)
+            serializer = CommentSerializer(data=request.data)
+            if serializer.is_valid():
+                content = serializer.validated_data['content']
+                comment = get_object_or_404(Comment, pk=request.data['comment_id'])
+                if comment.user != request.user:
+                    return Response({"error": "You do not have permission."},
+                                    status=status.HTTP_403_FORBIDDEN)
+                comment.content = content
+                comment.save()
+
+                return Response(CommentSerializer(comment).data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        if request.method == 'DELETE':
+            product = get_object_or_404(self.queryset, pk=pk)
+            comment = get_object_or_404(Comment, pk=request.data['comment_id'])
+            if comment.user != request.user:
+                return Response({"error": "You do not have permission."},
+                                status=status.HTTP_403_FORBIDDEN)
+
+            if comment.parent_comment:  # Has parent ?
+                if Comment.objects.filter(parent_comment=comment.parent_comment).count() < 2:  # Parent has one child?
+                    parent_comment = Comment.objects.filter(id=comment.parent_comment.id).first()
+                    parent_comment.is_parent = False
+                    parent_comment.save()
+
+            comment.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
 
 import hashlib
 import hmac

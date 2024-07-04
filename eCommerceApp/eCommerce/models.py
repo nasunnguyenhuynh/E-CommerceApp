@@ -199,6 +199,8 @@ class Order(BaseModel):
     status = models.ForeignKey(OrderStatus, on_delete=models.PROTECT)
     payment_method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT)
     shipping = models.ForeignKey(Shipping, on_delete=models.PROTECT)
+    user_phone = models.ForeignKey(UserPhone, on_delete=models.PROTECT)
+    user_address = models.ForeignKey(UserAddress, on_delete=models.PROTECT)
 
     def __str__(self):
         return f"{self.id}"
@@ -210,8 +212,6 @@ class OrderDetail(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     color = models.ForeignKey(ProductColor, on_delete=models.SET_NULL, null=True, blank=True)
-    user_phone = models.ForeignKey(UserPhone, on_delete=models.PROTECT)
-    user_address = models.ForeignKey(UserAddress, on_delete=models.PROTECT)
 
     # def __str__(self):
     #     return f"Order {self.order.id} - Product {self.product.name}"
@@ -245,22 +245,12 @@ class Interaction(BaseModel):
 class Rating(Interaction):
     star = models.IntegerField()
     is_shop = models.BooleanField(default=False)
+    order = models.ForeignKey(Order, on_delete=models.CASCADE)
 
 
 class Comment(Interaction):
     content = RichTextField()
     is_shop = models.BooleanField(default=False, blank=True)
     parent_comment = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True)
-    is_parent = models.BooleanField(default=True, blank=True)
-
-
-class ProductReview(Interaction):
-    comment = models.ForeignKey(Comment, on_delete=models.CASCADE)
-    rating = models.ForeignKey(Rating, on_delete=models.CASCADE)
-    order = models.ForeignKey(Order, on_delete=models.CASCADE)
-
-
-class ShopReview(Interaction):
-    comment = models.ForeignKey(Comment, on_delete=models.CASCADE)
-    rating = models.ForeignKey(Rating, on_delete=models.CASCADE)
-    order = models.ForeignKey(Order, on_delete=models.CASCADE)
+    is_parent = models.BooleanField(default=False, blank=True)
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, null=True, blank=True)
