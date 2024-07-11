@@ -13,6 +13,13 @@ r.register('products', ProductViewSet, basename='products')
 urlpatterns = [
     path('', include(r.urls)),
 
+    path('accounts/login/', user_login, name='login'),
+    path('accounts/login-with-sms/', login_with_sms, name='login_with_sms'),
+    # path('accounts/login-with-google/', login_with_google, name='login_with_google'),
+    path('accounts/signup/', user_signup, name='signup'),
+    path('accounts/logout/', log_out, name='logout'),
+    path('accounts/verify-otp/', verify_otp, name='verify_otp'),
+
     # vn pay api
     path('index', index, name='index'),
     path('payment/', payment, name='payment'),

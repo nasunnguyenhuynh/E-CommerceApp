@@ -8,6 +8,150 @@ from .serializers import *
 from .models import *
 from .pagination import *
 import cloudinary.uploader
+from oauth2_provider.models import AccessToken, RefreshToken
+from django.utils import timezone  # Base on tz configured
+from django.contrib.auth import logout, authenticate
+from django.core.cache import cache
+import os
+
+
+def get_access_token_login(user):
+    access_token = AccessToken.objects.filter(user_id=user.id).first()
+    if access_token and access_token.expires > timezone.now():
+        return access_token
+    else:
+        refresh_token = RefreshToken.objects.filter(user_id=user.id).first()
+        if not access_token or not refresh_token:
+            return None
+        if refresh_token:
+            access_token = AccessToken.objects.filter(id=refresh_token.access_token_id).first()
+            access_token.expires = timezone.now() + timezone.timedelta(hours=1)
+            access_token.save()
+            return access_token
+
+
+@api_view(['POST'])
+def user_login(request):
+    if request.method == 'POST':
+        serializer = UserLoginSerializer(data=request.data)
+        if serializer.is_valid():
+            username = serializer.validated_data.get('username')
+            password = serializer.validated_data.get('password')
+
+            user = authenticate(request, username=username, password=password)
+            if user is not None:
+                access_token = get_access_token_login(user)
+                return Response({'success': 'Login successfully', 'access_token': access_token.token},
+                                status=status.HTTP_200_OK)
+
+            return Response({'error': 'Invalid username/phone or password.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# OTP expires after 5 minutes
+OTP_EXPIRY_SECONDS = 300
+
+
+def generate_otp():
+    return str(random.randint(100000, 999999))
+
+
+@api_view(['POST'])
+def login_with_sms(request):
+    if request.method == 'POST':  # post phone + generate otp
+        serializer = UserLoginWithSMSSerializer(data=request.data)
+        if serializer.is_valid():
+            phone = serializer.validated_data.get('phone')
+            request.session['phone'] = phone  # Create session_phone_loginWithSms to verify
+            otp = generate_otp()
+            cache.set(phone, otp, timeout=OTP_EXPIRY_SECONDS)  # Create cache with key is phone to save OTP
+            cache.set('is_login', True, timeout=OTP_EXPIRY_SECONDS)  # Create cache_is_login to verify
+            # Send OTP to phone by Twilio
+            # account_sid = 'ACf3bd63d2afda19fdcb1a7ab22793a8b8'
+            # auth_token = '[AuthToken]'
+            # client = Client(account_sid, auth_token)
+            # message_body = f'DJANGO: Enter {otp} to verify account. OTP expires after 5 minutes.'
+            # message = client.messages.create(
+            # from_='+12513090557',
+            # body=message_body,
+            # to=phone_number
+            # )
+            return Response({'message': f'Your OTP is {otp}.'}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+def verify_otp(request):
+    if request.method == 'POST':  # post phone + otp
+        serializer = VerifyOTPSerializer(data=request.data)
+        if serializer.is_valid():
+            phone = request.session.get('phone')
+            otp = serializer.validated_data.get('otp')
+
+            cached_otp = cache.get(phone)  # Get OTP from cache
+            if cached_otp is None:
+                return Response({'message': 'OTP has expired.'}, status=status.HTTP_400_BAD_REQUEST)
+            print('otp_cotp', otp == cached_otp)
+            if otp == cached_otp:
+                cache.delete(phone)  # Delete OTP cache after used
+                if cache.get('is_login'):  # Delete cache_is_login
+                    cache.delete('is_login')
+                    user = UserPhone.objects.filter(phone=phone).get(user__is_active=True).user
+                    del request.session['phone']  # Delete session phone
+                    access_token = get_access_token_login(user)
+                    return Response({'success': 'Login successfully', 'access_token': access_token.token},
+                                    status=status.HTTP_200_OK)
+            else:
+                return Response({'message': 'OTP is not valid.'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+def log_out(request):
+    if request.method == 'POST':
+        logout(request)
+    return Response({'success': 'Logout successfully'}, status=status.HTTP_200_OK)
+
+
+def create_access_token(username, password):
+    data = {
+        'grant_type': 'password',
+        'username': username,
+        'password': password,
+        'client_id': os.getenv('APP_CLIENT_ID'),
+        'client_secret': os.getenv('APP_CLIENT_SECRET')
+    }
+
+    response = requests.post('http://127.0.0.1:8000/o/token/', data=data)
+
+    if response.status_code == 200:
+        access_token = response.json().get('access_token')
+        return access_token
+    else:
+        return None
+
+
+@api_view(['POST'])
+def user_signup(request):  # Signup with username + password -> Create Access_token
+    if request.method == 'POST':
+        serializer = UserLoginSerializer(data=request.data)
+        if serializer.is_valid():
+            username = serializer.validated_data.get('username')
+            password = serializer.validated_data.get('password')
+
+            # Check username used?
+            existing_user = User.objects.filter(username=username).exists()
+            if existing_user:
+                return Response({'error': 'Username already used.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            user = User.objects.create_user(username=username, password=password)
+            user.is_active = 1
+            user.save()
+            create_access_token(username, password)
+            return Response({'success': 'Your account has been created, plz login again.'}, status=status.HTTP_200_OK)
+    return Response({'error': 'Invalid username or password.'}, status=status.HTTP_401_UNAUTHORIZED)
 
 
 class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
@@ -27,6 +171,11 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
             restricted_keys = ['is_superuser', 'is_staff', 'is_active', 'is_vendor']
             for k, v in request.data.items():
                 if k not in restricted_keys:
+                    if k == 'username':
+                        # Check if the username already exists
+                        if User.objects.filter(username=v).exclude(pk=user.pk).exists():
+                            return Response({"error": "Username has been registered"},
+                                            status=status.HTTP_400_BAD_REQUEST)
                     if k == 'password':
                         v = make_password(v)
                     setattr(user, k, v)
@@ -431,6 +580,7 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIV
 
             comment.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 import hashlib
 import hmac

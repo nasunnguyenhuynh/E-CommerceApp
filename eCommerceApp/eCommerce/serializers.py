@@ -2,6 +2,42 @@ from .models import *
 from rest_framework import serializers
 
 
+class UserLoginSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField()
+
+    def validate(self, data):
+        username = data.get('username')
+        password = data.get('password')
+
+        if not username:
+            raise serializers.ValidationError("Username is required.")
+        if not password:
+            raise serializers.ValidationError("Password is required.")
+
+        return data
+
+
+class UserLoginWithSMSSerializer(serializers.Serializer):
+    phone = serializers.CharField()
+
+    def validate(self, data):
+        phone = data.get('phone')
+        if not phone:
+            raise serializers.ValidationError("Phone number is required.")
+        return data
+
+
+class VerifyOTPSerializer(serializers.Serializer):
+    otp = serializers.CharField()
+
+    def validate(self, data):
+        otp = data.get('otp')
+        if not otp:
+            raise serializers.ValidationError("OTP is required.")
+        return data
+
+
 class UserSerializer(serializers.ModelSerializer):
     def create(self, validated_data):  # hash password be4 store in database
         data = validated_data.copy()
