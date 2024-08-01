@@ -13,6 +13,22 @@ from django.utils import timezone  # Base on tz configured
 from django.contrib.auth import logout, authenticate
 from django.core.cache import cache
 import os
+from dotenv import load_dotenv
+
+load_dotenv()  # take environment variables from .env.
+from google.oauth2 import id_token
+from google.auth.transport import requests as auth_requests
+
+import secrets
+import string
+
+
+def generate_random_password(length=12):
+    # Safe char collection
+    characters = string.ascii_letters + string.digits + string.punctuation
+    # Random password created
+    password = ''.join(secrets.choice(characters) for _ in range(length))
+    return password
 
 
 def get_access_token_login(user):
@@ -106,6 +122,70 @@ def verify_otp(request):
                 return Response({'message': 'OTP is not valid.'}, status=status.HTTP_400_BAD_REQUEST)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+def login_with_google(request):
+    if request.method == 'POST':
+        try:
+            # decodeIdToken
+            decodeIdToken = id_token.verify_oauth2_token(request.data['idToken'], auth_requests.Request(),
+                                                         os.getenv('WEB_CLIENT_ID'))
+
+            # Check expiredToken
+            if int(timezone.now().timestamp()) > decodeIdToken['exp']:
+                return Response({'error': 'Token has expired'}, status=status.HTTP_400_BAD_REQUEST)
+            # Compare tokenInfo & userInfo
+            id_token_user_info = {
+                "email": decodeIdToken['email'],
+                "familyName": decodeIdToken.get('family_name', ''),
+                "givenName": decodeIdToken.get('given_name', ''),
+                "id": decodeIdToken['sub'],
+                "name": decodeIdToken['name'],
+                "photo": decodeIdToken.get('picture', '')
+            }
+            request_user_info = request.data['user']
+            if id_token_user_info != request_user_info:
+                return Response({'error': 'User information mismatch'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Serialize and validate the email
+            serializer = UserLoginWithGoogleSerializer(data={'email': request_user_info['email']})
+            if serializer.is_valid():
+                email = serializer.validated_data.get('email')
+
+                users_with_email = User.objects.filter(email=email, is_active=1)
+                if users_with_email.exists():
+                    access_token = get_access_token_login(users_with_email.first())
+                    return Response({'success': 'Login successfully', 'access_token': access_token.token},
+                                    status=status.HTTP_200_OK)
+                else:
+                    # Register new account with email GG
+                    username = secrets.token_hex(8)  # Generate random username
+                    password = generate_random_password()
+                    first_name = decodeIdToken.get('given_name', '')
+                    last_name = decodeIdToken.get('family_name', '')
+                    avatar = decodeIdToken.get('picture', '')
+
+                    user = User.objects.create_user(
+                        username=username,
+                        password=password,
+                        email=email,
+                        first_name=first_name,
+                        last_name=last_name,
+                        avatar=avatar,
+                        is_active=True
+                    )
+                    user.save()
+
+                    # Generate access_token
+                    access_token = create_access_token(username, password)
+
+                    return Response({'success': 'Your account has been created, please login again.',
+                                     'access_token': access_token}, status=status.HTTP_200_OK)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({'error': 'Login with Google failed'}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @api_view(['POST'])
@@ -210,6 +290,7 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                 citizen_identification_image = serializer.validated_data.get('citizen_identification_image')
                 shop_name = serializer.validated_data.get('shop_name')
                 shop_image = serializer.validated_data.get('shop_image')
+                shop_description = serializer.validated_data.get('shop_description')
                 if Shop.objects.filter(name=shop_name).exists():  # Check if the shop_name is already taken
                     return Response({'error': 'Shop name already taken.'}, status=status.HTTP_400_BAD_REQUEST)
                 if citizen_identification_image and shop_image:
@@ -221,7 +302,9 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
 
                     shopconfirmation = ShopConfirmation.objects. \
                         create(citizen_identification_image=cii_url,
-                               shop_name=shop_name, shop_image=si_url, user_id=request.user.id, status_id=1)
+                               shop_name=shop_name, shop_image=si_url,
+                               shop_description=shop_description,
+                               user_id=request.user.id, status_id=1)
                     shopconfirmation.save()
                     return Response({'success': 'Your request has been sent'}, status=status.HTTP_201_CREATED)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -425,6 +508,7 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIV
 
     @action(methods=['post', 'patch', 'get'], url_path="reviews", detail=True)  # /products/{product_id}/reviews/
     def create_update_product_review(self, request, pk=None):
+        # update product rating
         if request.method == 'POST':
             product = get_object_or_404(self.queryset, pk=pk)
             serializer = ProductReviewSerializer(data=request.data)
@@ -461,6 +545,7 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIV
                         order=order,
                         star=rating_data
                     )
+                #     Filter rating by product_id, is_shop=0
 
                 return Response({
                     "comment": CommentSerializer(comment).data if comment_data else None,

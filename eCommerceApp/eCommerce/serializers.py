@@ -38,6 +38,16 @@ class VerifyOTPSerializer(serializers.Serializer):
         return data
 
 
+class UserLoginWithGoogleSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate(self, data):
+        email = data.get('email')
+        if not email:
+            raise serializers.ValidationError("Email required.")
+        return data
+
+
 class UserSerializer(serializers.ModelSerializer):
     def create(self, validated_data):  # hash password be4 store in database
         data = validated_data.copy()
@@ -111,6 +121,11 @@ class ProductImageSerializer(serializers.ModelSerializer):
         model = ProductImage
         exclude = ['product']
 
+    def to_representation(self, instance):  # Override a field
+        rep = super().to_representation(instance)
+        rep['image'] = instance.image.url if instance.image and hasattr(instance.image, 'url') else None
+        return rep
+
 
 class ProductVideoSerializer(serializers.ModelSerializer):
     class Meta:
@@ -137,9 +152,11 @@ class ProductInfoSerializer(serializers.ModelSerializer):
 
 
 class ProductSerializer(serializers.ModelSerializer):
+    images = ProductImageSerializer(source='product_image', many=True)  # used for ManyToOne
+
     class Meta:
         model = Product
-        fields = ["id", "name", "price", "sold", "product_rating", "category", "shop_id"]
+        fields = ["id", "name", "price", "sold", "product_rating", "category", "shop_id", "images"]
 
 
 #                                              >>> OrderSerializer <<<
