@@ -75,14 +75,14 @@ class UserSerializer(serializers.ModelSerializer):
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
-        fields = '__all__'
+        fields = ['id', 'name']
 
 
 #                                              >>> ShopSerializer <<<
 class ShopSerializer(serializers.ModelSerializer):
     class Meta:
         model = Shop
-        fields = ['id', 'name', 'image', 'following', 'followed', 'rated']
+        fields = ['id', 'name', 'image', 'following', 'followed', 'shop_rating']
 
     def to_representation(self, instance):
         rep = super().to_representation(instance)
@@ -115,6 +115,11 @@ class ProductColorSerializer(serializers.ModelSerializer):
         model = ProductColor
         exclude = ['product']
 
+    def to_representation(self, instance):  # Override a field
+        rep = super().to_representation(instance)
+        rep['image'] = instance.image.url if instance.image and hasattr(instance.image, 'url') else None
+        return rep
+
 
 class ProductImageSerializer(serializers.ModelSerializer):
     class Meta:
@@ -131,6 +136,11 @@ class ProductVideoSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductVideo
         exclude = ['product']
+
+    def to_representation(self, instance):  # Override a field
+        rep = super().to_representation(instance)
+        rep['video'] = instance.video.url if instance.video and hasattr(instance.video, 'url') else None
+        return rep
 
 
 class ProductDetailSerializer(serializers.ModelSerializer):
@@ -182,13 +192,15 @@ class OrderSerializer(serializers.ModelSerializer):
         if self.context.get('detail', False):
             self.fields['order_details'] = serializers.SerializerMethodField()
 
-    def get_product_review(self, obj):  # All products in order rated? (Review can be only rating)
+    def get_product_review(self, obj):  # All products in order rated?
         return True if Rating.objects.filter(order=obj, is_shop=False).count() == OrderDetail.objects.filter(
             order=obj).count() else False
 
-    def get_shop_review(self, obj):
-        return True if Rating.objects.filter(order=obj, is_shop=True).count() == OrderDetail.objects.filter(
-            order=obj).count() else False
+    def get_shop_review(self, obj):  # All shops in order rated? (Only need 1 product from that shop to review)
+        return True \
+            if OrderDetail.objects.filter(order=obj). \
+                   values('product__shop').distinct().count() == Rating.objects.filter(order=obj, is_shop=True). \
+                   values('product__shop').distinct().count() else False
 
     def get_order_details(self, obj):
         order_details = OrderDetail.objects.filter(order=obj)
@@ -205,7 +217,7 @@ class OrderVoucherSerializer(serializers.ModelSerializer):
 class CommentSerializer(serializers.ModelSerializer):  # POST, PATCH reviews
     class Meta:
         model = Comment
-        fields = ['content', 'is_shop', 'parent_comment', 'is_parent']
+        fields = ['id', 'content', 'is_shop', 'parent_comment', 'is_parent']
         extra_kwargs = {
             'is_shop': {'required': False, 'default': False},
             'parent_comment': {'required': False},
@@ -216,13 +228,20 @@ class CommentSerializer(serializers.ModelSerializer):  # POST, PATCH reviews
 class RatingSerializer(serializers.ModelSerializer):  # POST, PATCH reviews
     class Meta:
         model = Rating
-        fields = ['star', 'is_shop']
+        fields = ['id', 'star', 'is_shop']
         extra_kwargs = {
             'is_shop': {'required': False, 'default': False},
         }
 
 
 class ProductReviewSerializer(serializers.Serializer):  # Custom serializer for POST reviews
-    comment = serializers.CharField(allow_blank=True)
+    comment = serializers.CharField(allow_blank=False)
     rating = serializers.IntegerField(max_value=5, min_value=1)
     order = serializers.IntegerField()
+
+
+class ShopReviewSerializer(serializers.Serializer):  # Custom serializer for POST reviews
+    comment = serializers.CharField(allow_blank=False)
+    rating = serializers.IntegerField(max_value=5, min_value=1)
+    order = serializers.IntegerField()
+    product = serializers.IntegerField()

@@ -3,6 +3,7 @@ from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 from rest_framework.generics import get_object_or_404
 from django.db.models import Q, Count
+from django.db import transaction
 from django.contrib.auth.hashers import make_password
 from .serializers import *
 from .models import *
@@ -371,40 +372,53 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                 # SHIPPING
                 shipping = Shipping.objects.get(id=request.data.get('shipping'))
 
-                try:  # Create Order
-                    order = Order.objects.create(total_amount=request.data.get('total_amount'),
-                                                 user=user,
-                                                 status=order_status,
-                                                 payment_method=payment_method,
-                                                 shipping=shipping,
-                                                 user_phone=user_phone,
-                                                 user_address=user_address)
-                except Exception as e:
-                    print(f"Error: {e}")
-                    return Response({'error': "There was an error while creating Order, plz try again later"},
-                                    status=status.HTTP_400_BAD_REQUEST)
+                # Create Order
+                order = Order.objects.create(total_amount=request.data.get('total_amount'),
+                                             user=user,
+                                             status=order_status,
+                                             payment_method=payment_method,
+                                             shipping=shipping,
+                                             user_phone=user_phone,
+                                             user_address=user_address)
 
-                try:  # Create OrderDetail
+                try:
                     for product in request.data.get('products'):
                         storage_products = StorageProduct.objects.filter(product_id=product['id'])  # Shop 1-n Storage
                         if not storage_products:  # product_id is existed ?
                             return Response({'error': 'product not found'}, status=status.HTTP_400_BAD_REQUEST)
-                        for storage_product in storage_products:  # remain in store enough?
-                            if storage_product.remain >= product['quantity']:
-                                if product['color']:
-                                    OrderDetail.objects.create(quantity=product['quantity'],
-                                                               price=Product.objects.get(id=product['id']).price,
-                                                               order=order,
-                                                               product=Product.objects.get(id=product['id']),
-                                                               color=ProductColor.objects.get(id=product['color']))
-                                else:
-                                    OrderDetail.objects.create(quantity=product['quantity'],
-                                                               price=Product.objects.get(id=product['id']).price,
-                                                               order=order,
-                                                               product=Product.objects.get(id=product['id']))
-                                storage_product.remain -= product['quantity']
+                        total = 0
+                        for storage_product in storage_products:
+                            total += storage_product.remain
+                        if total < product['quantity']:
+                            return Response({'error': f'product {product} out of stock'},
+                                            status=status.HTTP_400_BAD_REQUEST)
+
+                        product_quantity = product['quantity']
+                        for storage_product in storage_products:  # Update storage_product & product_quantity
+                            if storage_product.remain >= product_quantity:
+                                storage_product.remain -= product_quantity
+                                product_quantity = 0
+                                print('storage_product.remain ', storage_product.remain)
                                 storage_product.save()
                                 break
+                            else:
+                                product_quantity -= storage_product.remain
+                                storage_product.remain = 0
+                                print('storage_product.remain ', storage_product.remain)
+                                storage_product.save()
+                        # Create OrderDetail
+                        if product['color']:
+                            OrderDetail.objects.create(quantity=product['quantity'],
+                                                       price=Product.objects.get(id=product['id']).price,
+                                                       order=order,
+                                                       product=Product.objects.get(id=product['id']),
+                                                       color=ProductColor.objects.get(id=product['color']))
+                        else:
+                            OrderDetail.objects.create(quantity=product['quantity'],
+                                                       price=Product.objects.get(id=product['id']).price,
+                                                       order=order,
+                                                       product=Product.objects.get(id=product['id']))
+
                         if not OrderDetail.objects.filter(order_id=order.id):
                             order.delete()
                             return Response({'error': f'product {product} out of stock'},
@@ -459,6 +473,162 @@ class ShopViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /shops/
         serializer = ProductSerializer(products, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @action(methods=['post', 'patch', 'get'], detail=True, url_path='reviews')  # /shops/{shop_id}/reviews/
+    def create_update_retrieve_shop_review(self, request, pk=None):  # used by customer
+        if request.method == 'POST':
+            shop = get_object_or_404(self.queryset, pk=pk)
+            serializer = ShopReviewSerializer(data=request.data)
+
+            if serializer.is_valid():
+                order = get_object_or_404(Order, pk=serializer.validated_data['order'])
+                if order.user != request.user:
+                    return Response({"error": "You do not have permission to review this order."},
+                                    status=status.HTTP_403_FORBIDDEN)
+
+                if str(order.status) != 'Order Delivered':
+                    return Response({"error": "Cannot review without \'Order Delivered\' status"},
+                                    status=status.HTTP_400_BAD_REQUEST)
+                # Check if Product in Order
+                product = get_object_or_404(Product, pk=serializer.validated_data['product'])
+                if not OrderDetail.objects.filter(order=order, product=product).exists():
+                    return Response({"error": "Product not in order."}, status=status.HTTP_400_BAD_REQUEST)
+
+                # Check if Shop exists in Order through OrderDetail
+                if not OrderDetail.objects.filter(order=order, product__shop=shop).exists():
+                    return Response({"error": "Shop not in order."}, status=status.HTTP_400_BAD_REQUEST)
+
+                # Check if shop_review exists in this order
+                if Rating.objects.filter(order=order, product__shop=shop, is_shop=True).exists() or \
+                        Comment.objects.filter(order=order, product__shop=shop, is_shop=True).exists():
+                    return Response({"error": "Shop has already been reviewed for this order."},
+                                    status=status.HTTP_400_BAD_REQUEST)
+
+                if serializer.validated_data['comment']:
+                    comment = Comment.objects.create(
+                        user=request.user,
+                        product=product,
+                        order=order,
+                        content=serializer.validated_data['comment'],
+                        is_shop=True
+                    )
+
+                if serializer.validated_data['rating']:
+                    rating = Rating.objects.create(
+                        user=request.user,
+                        product=product,
+                        order=order,
+                        star=serializer.validated_data['rating'],
+                        is_shop=True
+                    )
+                # Update shop_rating
+                ratings = Rating.objects.filter(product__shop=shop, is_shop=True)
+
+                total_stars = sum(r.star for r in ratings)
+                total_reviews = ratings.count()
+                shop.shop_rating = round(total_stars / total_reviews, 1) if total_reviews > 0 else 0
+                shop.save()
+
+                return Response({
+                    "comment": CommentSerializer(comment).data if serializer.validated_data['comment'] else None,
+                    "rating": RatingSerializer(rating).data
+                }, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        if request.method == 'PATCH':
+            comment_data = request.data.get('comment')
+            rating_data = request.data.get('rating')
+            if comment_data:
+                comment_id = comment_data.get('id')
+                comment = get_object_or_404(Comment, id=comment_id)
+                if comment.user != request.user or not comment.is_shop:
+                    return Response({"error": "You do not have permission to edit this comment."},
+                                    status=status.HTTP_403_FORBIDDEN)
+                comment_serializer = CommentSerializer(comment, data=comment_data, partial=True)
+                if comment_serializer.is_valid():
+                    comment_serializer.save()
+                else:
+                    return Response(comment_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+            if rating_data:
+                rating_id = rating_data.get('id')
+                rating = get_object_or_404(Rating, id=rating_id)
+                if rating.user != request.user or not rating.is_shop:
+                    return Response({"error": "You do not have permission to edit this rating."},
+                                    status=status.HTTP_403_FORBIDDEN)
+                rating_serializer = RatingSerializer(rating, data=rating_data, partial=True)
+                if rating_serializer.is_valid():
+                    rating_serializer.save()
+                else:
+                    return Response(rating_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response({"message": "Review updated successfully."}, status=status.HTTP_200_OK)
+
+        if request.method == 'GET':
+            shop = get_object_or_404(self.queryset, pk=pk)
+            # Retrieve the products associated with the shop
+            products_in_shop = Product.objects.filter(shop=shop)
+            # Get comments and ratings for products in this shop with is_shop=True
+            comments = Comment.objects.filter(product__in=products_in_shop, is_shop=True)
+            ratings = Rating.objects.filter(product__in=products_in_shop, is_shop=True)
+
+            reviews = []
+            for rating in ratings:
+                comment = comments.filter(product=rating.product, is_shop=True, order=rating.order)
+                if comment.count() == 2:  # 2nd comment belongs to shop owner
+                    reviews.append({
+                        "user": {
+                            "id": comment[0].user.id,
+                            "username": comment[0].user.username,
+                            "avatar": f"{comment[0].user.avatar.url}"
+                        },
+                        "comment": {
+                            "id": comment[0].id,
+                            "content": comment[0].content,
+                            "is_parent": comment[0].is_parent,
+                            "parent_comment": comment[0].parent_comment,
+
+                            "children": {
+                                "user": {
+                                    "id": comment[1].user.id,
+                                    "username": comment[1].user.username,
+                                    "avatar": f"{comment[1].user.avatar.url}"
+                                },
+
+                                "comment": {
+                                    "id": comment[1].id,
+                                    "content": comment[1].content,
+                                    "is_parent": comment[1].is_parent,
+                                    "parent_comment": comment[1].parent_comment.id,
+                                }
+                            }
+                        },
+                        "rating": {
+                            "id": rating.id,
+                            "star": rating.star
+                        }
+                    })
+
+                if comment.count() == 1:
+                    comment = comment.first()
+                    reviews.append({
+                        "user": {
+                            "id": rating.user.id,
+                            "username": rating.user.username,
+                            "avatar": f"{rating.user.avatar.url}"
+                        },
+                        "comment": {
+                            "id": comment.id,
+                            "content": comment.content,
+                            "is_parent": comment.is_parent,
+                            "parent_comment": comment.parent_comment
+                        },
+                        "rating": {
+                            "id": rating.id,
+                            "star": rating.star
+                        }
+                    })
+
+            return Response(reviews, status=status.HTTP_200_OK)
+
 
 class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIView):  # GET /products/
     pagination_class = ProductPaginator
@@ -507,8 +677,7 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIV
         return queries
 
     @action(methods=['post', 'patch', 'get'], url_path="reviews", detail=True)  # /products/{product_id}/reviews/
-    def create_update_product_review(self, request, pk=None):
-        # update product rating
+    def create_update_retrieve_product_review(self, request, pk=None):  # used by customer
         if request.method == 'POST':
             product = get_object_or_404(self.queryset, pk=pk)
             serializer = ProductReviewSerializer(data=request.data)
@@ -519,6 +688,10 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIV
                 if order.user != request.user:
                     return Response({"error": "You do not have permission to review this order."},
                                     status=status.HTTP_403_FORBIDDEN)
+
+                if str(order.status) != 'Order Delivered':
+                    return Response({"error": "Cannot review without \'Order Delivered\' status"},
+                                    status=status.HTTP_400_BAD_REQUEST)
 
                 if not product.orderdetail_set.filter(order=order).exists():
                     return Response({"error": "Product not in order."}, status=status.HTTP_400_BAD_REQUEST)
@@ -545,7 +718,14 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIV
                         order=order,
                         star=rating_data
                     )
-                #     Filter rating by product_id, is_shop=0
+                #   Update product_sold & product_rating
+                product.sold += 1
+                ratings = Rating.objects.filter(product=product, is_shop=False)
+                total_stars = sum(r.star for r in ratings)
+                total_reviews = ratings.count()
+                product.product_rating = round(total_stars / total_reviews, 1) if total_reviews > 0 else 0
+
+                product.save()
 
                 return Response({
                     "comment": CommentSerializer(comment).data if comment_data else None,
@@ -560,7 +740,7 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIV
             if comment_data:
                 comment_id = comment_data.get('id')
                 comment = get_object_or_404(Comment, id=comment_id)
-                if comment.user != request.user:
+                if comment.user != request.user or comment.is_shop:
                     return Response({"error": "You do not have permission to edit this comment."},
                                     status=status.HTTP_403_FORBIDDEN)
                 comment_serializer = CommentSerializer(comment, data=comment_data, partial=True)
@@ -572,7 +752,7 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIV
             if rating_data:
                 rating_id = rating_data.get('id')
                 rating = get_object_or_404(Rating, id=rating_id)
-                if rating.user != request.user:
+                if rating.user != request.user or rating.is_shop:
                     return Response({"error": "You do not have permission to edit this rating."},
                                     status=status.HTTP_403_FORBIDDEN)
                 rating_serializer = RatingSerializer(rating, data=rating_data, partial=True)
@@ -590,37 +770,73 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIV
 
             reviews = []
             for rating in ratings:
-                comment = comments.filter(product=product, is_shop=False, order=rating.order).first()
-                reviews.append({
-                    "user": {
-                        "id": rating.user.id,
-                        "username": rating.user.username,
-                        "avatar": f"{rating.user.avatar.url}"
-                    },
-                    "comment": {
-                        "id": comment.id,
-                        "content": comment.content,
-                        "is_parent": comment.is_parent,
-                        "parent_comment": comment.parent_comment
-                    } if comment else None,
-                    "rating": {
-                        "id": rating.id,
-                        "star": rating.star
-                    }
-                })
+                comment = comments.filter(product=product, is_shop=False, order=rating.order)
+                if comment.count() == 2:  # 2nd comment belongs to shop owner
+                    reviews.append({
+                        "user": {
+                            "id": comment[0].user.id,
+                            "username": comment[0].user.username,
+                            "avatar": f"{comment[0].user.avatar.url}"
+                        },
+                        "comment": {
+                            "id": comment[0].id,
+                            "content": comment[0].content,
+                            "is_parent": comment[0].is_parent,
+                            "parent_comment": comment[0].parent_comment,
 
+                            "children": {
+                                "user": {
+                                    "id": comment[1].user.id,
+                                    "username": comment[1].user.username,
+                                    "avatar": f"{comment[1].user.avatar.url}"
+                                },
+
+                                "comment": {
+                                    "id": comment[1].id,
+                                    "content": comment[1].content,
+                                    "is_parent": comment[1].is_parent,
+                                    "parent_comment": comment[1].parent_comment.id,
+                                }
+                            }
+                        },
+                        "rating": {
+                            "id": rating.id,
+                            "star": rating.star
+                        }
+                    })
+
+                if comment.count() == 1:
+                    comment = comment.first()
+                    reviews.append({
+                        "user": {
+                            "id": rating.user.id,
+                            "username": rating.user.username,
+                            "avatar": f"{rating.user.avatar.url}"
+                        },
+                        "comment": {
+                            "id": comment.id,
+                            "content": comment.content,
+                            "is_parent": comment.is_parent,
+                            "parent_comment": comment.parent_comment
+                        },
+                        "rating": {
+                            "id": rating.id,
+                            "star": rating.star
+                        }
+                    })
             return Response(reviews, status=status.HTTP_200_OK)
 
-    @action(methods=['post', 'patch', 'delete'], url_path="comment", detail=True)  # /products/{product_id}/comment/
-    def comment(self, request, pk=None):
+    @action(methods=['post', 'patch', 'delete', 'get'], url_path="comment", detail=True)
+    # /products/{product_id}/comment/
+    def comment(self, request, pk=None):  # used by customer, shop_owner
         if request.method == 'POST':
             product = get_object_or_404(self.queryset, pk=pk)
             serializer = CommentSerializer(data=request.data)
-            if serializer.is_valid():
+            if serializer.is_valid():  # Check parent_comment, content
                 parent_comment = serializer.validated_data['parent_comment'] if request.data['parent_comment'] else None
                 content = serializer.validated_data['content']
 
-                if parent_comment:
+                if parent_comment:  # Update parent_comment
                     comment = get_object_or_404(Comment, id=parent_comment.id)
                     comment.is_parent = True
                     comment.save()
@@ -629,8 +845,10 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIV
                     user=request.user,
                     product=product,
                     content=content,
-                    parent_comment=parent_comment,
-                    order=parent_comment.order if parent_comment and parent_comment.order else None
+
+                    parent_comment=parent_comment if parent_comment else None,
+                    order=parent_comment.order if parent_comment and parent_comment.order else None,
+                    is_shop=parent_comment.is_shop if parent_comment and parent_comment.is_shop else False
                 )
                 return Response(CommentSerializer(comment).data, status=status.HTTP_201_CREATED)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -647,7 +865,7 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIV
                 comment.content = content
                 comment.save()
 
-                return Response(CommentSerializer(comment).data, status=status.HTTP_201_CREATED)
+                return Response(CommentSerializer(comment).data, status=status.HTTP_200_OK)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         if request.method == 'DELETE':
@@ -665,6 +883,53 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIV
 
             comment.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
+
+        if request.method == 'GET':
+            product = get_object_or_404(self.queryset, pk=pk)
+            comments = Comment.objects.filter(product=product, is_shop=False, order_id=None, parent_comment=None)
+
+            comments_detail = []
+            for comment in comments:
+                comments_detail.append({
+                    "user": {
+                        "id": comment.user.id,
+                        "username": comment.user.username,
+                        "avatar": f"{comment.user.avatar.url}"
+                    },
+                    "comment": {
+                        "id": comment.id,
+                        "content": comment.content,
+                        "is_shop": comment.is_shop,
+                        "is_parent": comment.is_parent,
+                        "parent_comment": comment.parent_comment.id if comment.parent_comment else None
+                    }
+                })
+            return Response(comments_detail, status=status.HTTP_200_OK)
+
+    @action(methods=['get'], url_path="comment/(?P<comment_id>[^/.]+)", detail=True)
+    # /products/{product_id}/comment/{comment_id}
+    def get_comment_by_parent_comment_id(self, request, pk=None, comment_id=None):
+        if request.method == 'GET':
+            product = get_object_or_404(self.queryset, pk=pk)
+            comments = Comment.objects.filter(product=product, is_shop=False, parent_comment_id=comment_id)
+
+            comments_detail = []
+            for comment in comments:
+                comments_detail.append({
+                    "user": {
+                        "id": comment.user.id,
+                        "username": comment.user.username,
+                        "avatar": f"{comment.user.avatar.url}"
+                    },
+                    "comment": {
+                        "id": comment.id,
+                        "content": comment.content,
+                        "is_shop": comment.is_shop,
+                        "is_parent": comment.is_parent,
+                        "parent_comment": comment.parent_comment.id if comment.parent_comment else None
+                    }
+                })
+            return Response(comments_detail, status=status.HTTP_200_OK)
 
 
 import hashlib
