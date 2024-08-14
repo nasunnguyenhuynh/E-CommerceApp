@@ -636,7 +636,7 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIV
     serializer_class = ProductSerializer
 
     def get_permissions(self):
-        if self.action in ['create_update_product_review', 'reply_comment']:
+        if self.action in ['create_update_retrieve_product_review', 'comment']:
             return [permissions.IsAuthenticated()]
 
         return [permissions.AllowAny()]
@@ -886,7 +886,8 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIV
 
         if request.method == 'GET':
             product = get_object_or_404(self.queryset, pk=pk)
-            comments = Comment.objects.filter(product=product, is_shop=False, order_id=None, parent_comment=None)
+            comments = Comment.objects.\
+                filter(product=product, is_shop=False, order_id=None, parent_comment=None).order_by('-id')
 
             comments_detail = []
             for comment in comments:
