@@ -5,6 +5,7 @@ from django.contrib.auth.models import Group
 from .models import *
 from django import forms
 from ckeditor_uploader.widgets import CKEditorUploadingWidget
+from django.utils import timezone
 
 
 class UserAdmin(admin.ModelAdmin):
@@ -48,13 +49,8 @@ class UserAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
 
 
-class UserAdressAdmin(admin.ModelAdmin):
-    list_display = ['id', 'address', 'default', 'user']
-    list_filter = ['default', 'user']
-
-
-class UserPhoneAdmin(admin.ModelAdmin):
-    list_display = ['id', 'phone', 'default', 'user']
+class UserAdressPhoneAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name', 'address', 'phone', 'default', 'user']
     list_filter = ['default', 'user']
 
 
@@ -403,16 +399,31 @@ class ShippingAdmin(admin.ModelAdmin):
 
 #                                              >>> VoucherAdmin <<<
 class VoucherTypeAdmin(admin.ModelAdmin):
-    list_display = ['id', 'name', 'key']
+    list_display = ['id', 'name']
     list_filter = ['name']
 
 
 class VoucherConditionAdmin(admin.ModelAdmin):
-    list_display = ['id', 'min_order_amount', 'max_uses', 'categories', 'payment_method', 'shipping']
+    list_display = ['id', 'min_order_amount', 'remain', 'discount']
 
 
 class VoucherAdmin(admin.ModelAdmin):
-    list_display = ['name', 'code', 'discount', 'start_date', 'end_date', 'voucher_type', 'voucher_condition']
+    list_display = ['id', 'created_date', 'updated_date', 'active',
+                    'name', 'code', 'start_date', 'end_date', 'voucher_type', 'get_voucher_conditions']
+    list_filter = ['active', 'voucher_type', 'end_date']
+
+    def get_voucher_conditions(self, obj):
+        return ", ".join([str(vc) for vc in obj.voucher_conditions.all()])
+
+    get_voucher_conditions.short_description = 'Voucher Conditions'
+
+    def save_model(self, request, obj, form, change):
+        # Check if end_date is less than the current date
+        if obj.end_date <= timezone.now():
+            obj.active = False
+        else:
+            obj.active = True
+        super().save_model(request, obj, form, change)
 
 
 class OrderStatusAdmin(admin.ModelAdmin):
@@ -420,7 +431,7 @@ class OrderStatusAdmin(admin.ModelAdmin):
 
 
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ['id', 'total_amount', 'user', 'status', 'payment_method', 'shipping', 'user_phone', 'user_address']
+    list_display = ['id', 'total_amount', 'user', 'status', 'payment_method', 'shipping', 'user_address_phone']
 
 
 class OrderDetailAdmin(admin.ModelAdmin):
@@ -428,8 +439,7 @@ class OrderDetailAdmin(admin.ModelAdmin):
 
 
 admin.site.register(User, UserAdmin)
-admin.site.register(UserAddress, UserAdressAdmin)
-admin.site.register(UserPhone, UserPhoneAdmin)
+admin.site.register(UserAddressPhone, UserAdressPhoneAdmin)
 admin.site.register(Category, CategoryAdmin)
 
 admin.site.register(Shop, ShopAdmin)

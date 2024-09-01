@@ -13,22 +13,12 @@ class User(AbstractUser):
     birthday = models.DateField(null=True, blank=True)
 
 
-class UserAddress(models.Model):
+class UserAddressPhone(models.Model):
+    name = models.CharField(max_length=100)
     address = models.CharField(max_length=150)
-    default = models.BooleanField(default=True)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_address')
-
-    def __str__(self):
-        return self.address
-
-
-class UserPhone(models.Model):
     phone = models.CharField(max_length=10)
-    default = models.BooleanField(default=True)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_phone')
-
-    def __str__(self):
-        return self.phone
+    default = models.BooleanField(default=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
 
 
 class BaseModel(models.Model):
@@ -90,7 +80,7 @@ class Product(BaseModel):  # Product can be duplicate
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='product_shop')
 
     def __str__(self):
-        return self.name
+        return f'{self.shop.name} / {self.name}'
 
 
 class ProductDetail(models.Model):
@@ -160,30 +150,38 @@ class Shipping(BaseModel):
 
 class VoucherType(models.Model):
     name = models.CharField(max_length=30, unique=True)
-    key = models.CharField(max_length=10, unique=True)
+
+    def __str__(self):
+        return f"{self.name}"
 
 
 class VoucherCondition(models.Model):
     min_order_amount = models.FloatField(null=True, blank=True, default=0)
-    max_uses = models.IntegerField(null=True, blank=True, default=None)
-    categories = models.OneToOneField(Category, on_delete=models.PROTECT, null=True, blank=True)
-    payment_method = models.OneToOneField(PaymentMethod, on_delete=models.PROTECT, null=True, blank=True)
-    shipping = models.OneToOneField(Shipping, on_delete=models.PROTECT, null=True, blank=True)
+    remain = models.IntegerField(null=True, blank=True, default=1)
+    categories = models.ManyToManyField(Category, blank=True)
+    products = models.ManyToManyField(Product, blank=True)
+    payment_methods = models.ManyToManyField(PaymentMethod, blank=True)
+    shippings = models.ManyToManyField(Shipping, blank=True)
+    discount = models.FloatField(default=0, null=True, blank=True)
+    """
+    def save(self, *args, **kwargs):
+        # Automatically set active to False if the end_date is in the past
+        if self.end_date < timezone.now():
+            self.active = False
+        super().save(*args, **kwargs)
+    """
+    def __str__(self):
+        return f"{self.pk}"
 
 
 class Voucher(BaseModel):
     name = models.CharField(max_length=100)
     code = models.CharField(max_length=10, unique=True)
-    discount = models.FloatField()
     start_date = models.DateTimeField()
     end_date = models.DateTimeField()
-    voucher_type = models.ForeignKey(VoucherType, on_delete=models.CASCADE, null=True, blank=True)
-    voucher_condition = models.ForeignKey(VoucherCondition, on_delete=models.CASCADE, null=True, blank=True)
-
-
-class UserVoucher(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    voucher = models.ForeignKey(Voucher, on_delete=models.CASCADE)
+    voucher_type = models.ForeignKey(VoucherType, on_delete=models.CASCADE)
+    voucher_conditions = models.ManyToManyField(VoucherCondition)
+    is_multiple = models.BooleanField(default=False)
 
 
 class OrderStatus(models.Model):
@@ -199,11 +197,10 @@ class Order(BaseModel):
     status = models.ForeignKey(OrderStatus, on_delete=models.PROTECT)
     payment_method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT)
     shipping = models.ForeignKey(Shipping, on_delete=models.PROTECT)
-    user_phone = models.ForeignKey(UserPhone, on_delete=models.PROTECT)
-    user_address = models.ForeignKey(UserAddress, on_delete=models.PROTECT)
+    user_address_phone = models.ForeignKey(UserAddressPhone, on_delete=models.PROTECT)
 
     def __str__(self):
-        return f"{self.id}"
+        return f"{self.pk}"
 
 
 class OrderDetail(models.Model):

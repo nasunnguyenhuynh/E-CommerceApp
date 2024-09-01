@@ -114,7 +114,7 @@ def verify_otp(request):
                 cache.delete(phone)  # Delete OTP cache after used
                 if cache.get('is_login'):  # Delete cache_is_login
                     cache.delete('is_login')
-                    user = UserPhone.objects.filter(phone=phone).get(user__is_active=True).user
+                    user = UserAddressPhone.objects.filter(phone=phone).get(user__is_active=True).user
                     del request.session['phone']  # Delete session phone
                     access_token = get_access_token_login(user)
                     return Response({'success': 'Login successfully', 'access_token': access_token.token},
@@ -359,9 +359,9 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                 user = User.objects.get(id=pk, is_active=True)
 
                 # USER ADDRESS
-                user_address = UserAddress.objects.get(user_id=pk, default=True)
+                user_address = UserAddressPhone.objects.get(user_id=pk, default=True)
 
-                user_phone = UserPhone.objects.get(user_id=pk, default=True)
+                user_phone = UserAddressPhone.objects.get(user_id=pk, default=True)
 
                 # ORDER STATUS
                 order_status = OrderStatus.objects.get(id=1)
@@ -451,10 +451,91 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
         serializer = OrderSerializer(order, context={'detail': True})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @action(methods=['get', 'post', 'delete', 'patch'], url_path='address-phone', detail=True)
+    # users/{user_id}/address-phone/
+    def addresses(self, request, pk=None):
+        if int(pk) != request.user.id:
+            return Response({'detail': 'You do not have permission to perform this action.'},
+                            status=status.HTTP_403_FORBIDDEN)
+        if request.method == 'GET':
+            address_phone = UserAddressPhone.objects.filter(user_id=pk).order_by('-default', '-id')
+            serializer = UserAddressPhoneSerializer(address_phone, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        if request.method == 'POST':
+            # Check if the user has any address-phone
+            user_has_address_phone = UserAddressPhone.objects.filter(user=request.user).exists()
+
+            # If the user has no address-phone, set 'default' to True
+            data = request.data.copy()
+            if not user_has_address_phone:
+                data['default'] = True
+            print('user_has_address_phone ', user_has_address_phone)
+            serializer = UserAddressPhoneSerializer(data=data)
+            if serializer.is_valid():
+                # Save the new address-phone with the current user
+                serializer.save(user=request.user)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        if request.method == 'DELETE':
+            address_phone_id = request.data.get('id')
+            try:
+                address_phone = UserAddressPhone.objects.get(id=address_phone_id, user_id=pk)
+
+                # Check if the address-phone is the default
+                if address_phone.default:
+                    # Find another address-phone to set as default
+                    other_address_phone = UserAddressPhone.objects.filter(user_id=pk).exclude(id=address_phone_id).first()
+                    if other_address_phone:
+                        other_address_phone.default = True
+                        other_address_phone.save()
+
+                # Set the user field to null instead of deleting the address
+                address_phone.user = None
+                address_phone.save()
+                return Response({'detail': 'Address-Phone disassociated successfully.'}, status=status.HTTP_204_NO_CONTENT)
+            except UserAddressPhone.DoesNotExist:
+                return Response({'detail': 'Address-Phone not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if request.method == 'PATCH':
+            address_phone_id = request.data.get('id')
+            try:
+                address_phone = UserAddressPhone.objects.get(id=address_phone_id, user_id=pk)
+
+                # Update the address/phone field if provided
+                if 'address' in request.data:
+                    address_phone.address = request.data['address']
+                if 'phone' in request.data:
+                    address_phone.phone = request.data['phone']
+                if 'name' in request.data:
+                    address_phone.name = request.data['name']
+                # If 'default' is set to true, update other address-phone to set their 'default' to false
+                if request.data.get('default'):
+                    UserAddressPhone.objects.filter(user=request.user, default=True).update(default=False)
+                    address_phone.default = True
+
+                address_phone.save()
+                return Response({'detail': 'AddressPhone updated successfully.'}, status=status.HTTP_200_OK)
+            except UserAddressPhone.DoesNotExist:
+                return Response({'detail': 'AddressPhone not found.'}, status=status.HTTP_404_NOT_FOUND)
+
 
 class CategoryViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /categories/
     queryset = Category.objects.filter(active=True)
     serializer_class = CategorySerializer
+
+
+class ShippingViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /shipping-unit/
+    queryset = Shipping.objects.filter(active=True)
+    serializer_class = ShippingSerializer
+
+
+class VoucherViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /vouchers/
+    queryset = Voucher.objects.filter(active=True)
+    serializer_class = VoucherSerializer
+
+
+class VoucherConditionViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /voucher-conditions/
+    queryset = VoucherCondition.objects.all()
+    serializer_class = VoucherConditionSerializer
 
 
 class ShopViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /shops/
@@ -886,7 +967,7 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIV
 
         if request.method == 'GET':
             product = get_object_or_404(self.queryset, pk=pk)
-            comments = Comment.objects.\
+            comments = Comment.objects. \
                 filter(product=product, is_shop=False, order_id=None, parent_comment=None).order_by('-id')
 
             comments_detail = []

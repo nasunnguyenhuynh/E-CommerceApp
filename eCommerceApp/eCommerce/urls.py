@@ -7,6 +7,9 @@ r = routers.DefaultRouter()
 
 r.register('users', UserViewSet, basename='users')
 r.register('categories', CategoryViewset, basename='categories')
+r.register('shipping-unit', ShippingViewset, basename='shipping-unit')
+r.register('vouchers', VoucherViewset, basename='vouchers')
+r.register('voucher-conditions', VoucherConditionViewset, basename='voucher-conditions')
 r.register('shops', ShopViewset, basename='shops')
 r.register('products', ProductViewSet, basename='products')
 

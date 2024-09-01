@@ -1,5 +1,6 @@
 from .models import *
 from rest_framework import serializers
+from django.db.models import Sum
 
 
 class UserLoginSerializer(serializers.Serializer):
@@ -72,6 +73,12 @@ class UserSerializer(serializers.ModelSerializer):
         return rep
 
 
+class UserAddressPhoneSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserAddressPhone
+        fields = ['id', 'name', 'address', 'phone', 'default']
+
+
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
@@ -80,9 +87,14 @@ class CategorySerializer(serializers.ModelSerializer):
 
 #                                              >>> ShopSerializer <<<
 class ShopSerializer(serializers.ModelSerializer):
+    total_product = serializers.SerializerMethodField()
+
     class Meta:
         model = Shop
-        fields = ['id', 'name', 'image', 'following', 'followed', 'shop_rating']
+        fields = ['id', 'name', 'image', 'following', 'followed', 'shop_rating', 'total_product']
+
+    def get_total_product(self, obj):
+        return Product.objects.filter(shop=obj).count()
 
     def to_representation(self, instance):
         rep = super().to_representation(instance)
@@ -154,11 +166,16 @@ class ProductInfoSerializer(serializers.ModelSerializer):
     images = ProductImageSerializer(source='product_image', many=True)  # used for ManyToOne
     colors = ProductColorSerializer(source='product_color', many=True)  # used for ManyToOne
     videos = ProductVideoSerializer(source='product_video', many=True)  # used for ManyToOne
+    remain = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
-        fields = ["id", "name", "price", "sold", "product_rating", "category", "shop_id", "details", "images", "colors",
-                  "videos"]
+        fields = ["id", "name", "remain", "price", "sold", "product_rating", "category",
+                  "shop_id", "details", "images", "colors", "videos"]
+
+    def get_remain(self, obj):
+        total_remain = StorageProduct.objects.filter(product=obj).aggregate(total=Sum('remain'))['total']
+        return total_remain or 0
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -205,6 +222,55 @@ class OrderSerializer(serializers.ModelSerializer):
     def get_order_details(self, obj):
         order_details = OrderDetail.objects.filter(order=obj)
         return OrderDetailSerializer(order_details, many=True).data
+
+
+#                                              >>> PaymentMethodSerializer <<<
+class PaymentMethodSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaymentMethod
+        fields = ['id', 'name']
+
+
+class ShippingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Shipping
+        fields = ['id', 'name', 'fee']
+
+
+#                                              >>> VoucherSerializer <<<
+class TinyProductSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Product
+        fields = ["id", "name"]
+
+
+class VoucherConditionSerializer(serializers.ModelSerializer):
+    categories = CategorySerializer(many=True)
+    products = TinyProductSerializer(many=True)
+    payment_methods = PaymentMethodSerializer(many=True)
+    shippings = ShippingSerializer(many=True)
+
+    class Meta:
+        model = VoucherCondition
+        fields = ['id', 'min_order_amount', 'discount', 'remain',
+                  'products', 'categories', 'payment_methods', 'shippings']
+
+
+class VoucherSerializer(serializers.ModelSerializer):
+    start_date = serializers.SerializerMethodField()
+    end_date = serializers.SerializerMethodField()
+    voucher_type_name = serializers.CharField(source='voucher_type.name', read_only=True)  # Change to voucher_type_name
+    conditions = VoucherConditionSerializer(many=True, source='voucher_conditions')
+
+    class Meta:
+        model = Voucher
+        fields = ['id', 'name', 'code', 'is_multiple', 'start_date', 'end_date', 'voucher_type_name', 'conditions']
+
+    def get_start_date(self, obj):
+        return obj.start_date.strftime('%d/%m/%Y %H:%M:%S')
+
+    def get_end_date(self, obj):
+        return obj.end_date.strftime('%d/%m/%Y %H:%M:%S')
 
 
 class OrderVoucherSerializer(serializers.ModelSerializer):
