@@ -163,13 +163,7 @@ class VoucherCondition(models.Model):
     payment_methods = models.ManyToManyField(PaymentMethod, blank=True)
     shippings = models.ManyToManyField(Shipping, blank=True)
     discount = models.FloatField(default=0, null=True, blank=True)
-    """
-    def save(self, *args, **kwargs):
-        # Automatically set active to False if the end_date is in the past
-        if self.end_date < timezone.now():
-            self.active = False
-        super().save(*args, **kwargs)
-    """
+
     def __str__(self):
         return f"{self.pk}"
 
@@ -198,6 +192,7 @@ class Order(BaseModel):
     payment_method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT)
     shipping = models.ForeignKey(Shipping, on_delete=models.PROTECT)
     user_address_phone = models.ForeignKey(UserAddressPhone, on_delete=models.PROTECT)
+    order_voucher_condition = models.ManyToManyField(VoucherCondition, blank=True)
 
     def __str__(self):
         return f"{self.pk}"
@@ -212,14 +207,6 @@ class OrderDetail(models.Model):
 
     # def __str__(self):
     #     return f"Order {self.order.id} - Product {self.product.name}"
-
-
-class OrderVoucher(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    voucher = models.ForeignKey(Voucher, on_delete=models.CASCADE)
-
-    # def __str__(self):
-    #     return f"Order {self.order.id} - Voucher {self.voucher.code}"
 
 
 class PaymentVNPAYDetail(models.Model):

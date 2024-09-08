@@ -273,12 +273,6 @@ class VoucherSerializer(serializers.ModelSerializer):
         return obj.end_date.strftime('%d/%m/%Y %H:%M:%S')
 
 
-class OrderVoucherSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = OrderVoucher
-        fields = ['voucher']
-
-
 #                                              >>> ReviewSerializer <<<
 class CommentSerializer(serializers.ModelSerializer):  # POST, PATCH reviews
     class Meta:

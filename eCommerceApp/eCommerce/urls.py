@@ -7,6 +7,7 @@ r = routers.DefaultRouter()
 
 r.register('users', UserViewSet, basename='users')
 r.register('categories', CategoryViewset, basename='categories')
+r.register('payment-method', PaymentMethodViewset, basename='payment-method')
 r.register('shipping-unit', ShippingViewset, basename='shipping-unit')
 r.register('vouchers', VoucherViewset, basename='vouchers')
 r.register('voucher-conditions', VoucherConditionViewset, basename='voucher-conditions')
@@ -22,6 +23,8 @@ urlpatterns = [
     path('accounts/signup/', user_signup, name='signup'),
     path('accounts/logout/', log_out, name='logout'),
     path('accounts/verify-otp/', verify_otp, name='verify_otp'),
+    path('vouchers/<int:voucher_id>/condition/<int:condition_id>/',
+         UpdateVoucherConditionRemainView.as_view(), name='update-voucher-condition-remain'),
 
     # vn pay api
     path('index', index, name='index'),

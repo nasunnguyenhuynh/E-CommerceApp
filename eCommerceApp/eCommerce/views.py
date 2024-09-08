@@ -1,4 +1,6 @@
 from rest_framework import viewsets, generics, status, parsers, permissions
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 from rest_framework.generics import get_object_or_404
@@ -323,76 +325,43 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
             return Response({'detail': 'You do not have permission to perform this action.'},
                             status=status.HTTP_403_FORBIDDEN)
         if request.method == "POST":
-            # Difference of get & filter
-            # Require user provide phone&address be4 send Req
-            # Check voucher expired | satisfied condition ?
-            # total_amount = (product_price * product_quantity) + shipping + voucher
+            try:  # Create Order
+                with transaction.atomic():  # Ensure that all operations are atomic
+                    # USER
+                    user = User.objects.get(id=pk, is_active=True)
 
-            """ Sample JSON sent from client
-                {   
-                    "total_amount": 1299000,
-                    "products": [
-                        {
-                            "id": 1,
-                            "color": 1,
-                            "quantity": 2
-                        },
-                        {
-                            "id": 1,
-                            "color": 2,
-                            "quantity": 3
-                        },
-                        {
-                            "id": 6,
-                            "color": null,
-                            "quantity": 3 
-                        }
-                    ],
-                    "vouchers": [1],
-                    "payment_method": 1,
-                    "shipping": 3
-                }
-            """
+                    # USER ADDRESS PHONE
+                    user_address_phone = UserAddressPhone.objects.get(user_id=pk, default=True)
 
-            try:
-                # USER
-                user = User.objects.get(id=pk, is_active=True)
+                    # ORDER STATUS
+                    order_status = OrderStatus.objects.get(id=1)
 
-                # USER ADDRESS
-                user_address = UserAddressPhone.objects.get(user_id=pk, default=True)
+                    # PAYMENT METHOD
+                    payment_method = PaymentMethod.objects.get(id=request.data.get('payment_method'))
 
-                user_phone = UserAddressPhone.objects.get(user_id=pk, default=True)
+                    # SHIPPING
+                    shipping = Shipping.objects.get(id=request.data.get('shipping'))
 
-                # ORDER STATUS
-                order_status = OrderStatus.objects.get(id=1)
+                    # Create Order
+                    order = Order.objects.create(total_amount=request.data.get('total_amount'),
+                                                 user=user,
+                                                 status=order_status,
+                                                 payment_method=payment_method,
+                                                 shipping=shipping,
+                                                 user_address_phone=user_address_phone)
 
-                # PAYMENT METHOD
-                payment_method = PaymentMethod.objects.get(id=request.data.get('payment_method'))
-
-                # SHIPPING
-                shipping = Shipping.objects.get(id=request.data.get('shipping'))
-
-                # Create Order
-                order = Order.objects.create(total_amount=request.data.get('total_amount'),
-                                             user=user,
-                                             status=order_status,
-                                             payment_method=payment_method,
-                                             shipping=shipping,
-                                             user_phone=user_phone,
-                                             user_address=user_address)
-
-                try:
                     for product in request.data.get('products'):
                         storage_products = StorageProduct.objects.filter(product_id=product['id'])  # Shop 1-n Storage
                         if not storage_products:  # product_id is existed ?
+                            order.delete()
                             return Response({'error': 'product not found'}, status=status.HTTP_400_BAD_REQUEST)
                         total = 0
                         for storage_product in storage_products:
                             total += storage_product.remain
                         if total < product['quantity']:
+                            order.delete()
                             return Response({'error': f'product {product} out of stock'},
                                             status=status.HTTP_400_BAD_REQUEST)
-
                         product_quantity = product['quantity']
                         for storage_product in storage_products:  # Update storage_product & product_quantity
                             if storage_product.remain >= product_quantity:
@@ -406,7 +375,7 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                                 storage_product.remain = 0
                                 print('storage_product.remain ', storage_product.remain)
                                 storage_product.save()
-                        # Create OrderDetail
+
                         if product['color']:
                             OrderDetail.objects.create(quantity=product['quantity'],
                                                        price=Product.objects.get(id=product['id']).price,
@@ -419,25 +388,45 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                                                        order=order,
                                                        product=Product.objects.get(id=product['id']))
 
-                        if not OrderDetail.objects.filter(order_id=order.id):
-                            order.delete()
-                            return Response({'error': f'product {product} out of stock'},
-                                            status=status.HTTP_400_BAD_REQUEST)
-                except Exception as e:
-                    print(f"Error: {e}")
-                    order.delete()  # Remove out of db
-                    return Response({'error': "There was an error while creating OrderDetail, plz try again later"},
-                                    status=status.HTTP_400_BAD_REQUEST)
-                for voucher in request.data.get('vouchers'):
-                    if Voucher.objects.filter(id=voucher).first():
-                        OrderVoucher.objects.create(user=user, voucher=Voucher.objects.get(id=voucher))
+                    # Validate Vouchers and Associate with Order
+                    voucher_condition_ids = request.data.get('vouchers', [])
+                    for voucher_condition_id in voucher_condition_ids:
+                        try:
+                            # Retrieve VoucherCondition get_object_or_404(Order, pk=order_id, user_id=pk)
+                            voucher_condition = VoucherCondition.objects.get(id=voucher_condition_id)
+                            # voucher_condition = get_object_or_404(VoucherCondition, pk=voucher_condition_id)
 
+                            # Validate VoucherCondition
+                            if voucher_condition.min_order_amount and order.total_amount < voucher_condition.min_order_amount:
+                                order.delete()
+                                return Response({
+                                    'error': f'Order amount is less than the minimum required for VoucherCondition {voucher_condition_id}'},
+                                    status=status.HTTP_400_BAD_REQUEST)
+
+                            if voucher_condition.remain <= 0:
+                                order.delete()
+                                return Response({'error': f'VoucherCondition {voucher_condition_id} is out of stock'},
+                                                status=status.HTTP_400_BAD_REQUEST)
+
+                            # Associate VoucherCondition with Order
+                            order.order_voucher_condition.add(voucher_condition)
+
+                            # Update VoucherCondition remain
+                            voucher_condition.remain -= 1
+                            voucher_condition.save()
+
+                            return Response({'order_id': f"{order.id}", 'total_amount': f"{order.total_amount}"},
+                                            status=status.HTTP_201_CREATED)
+
+                        except VoucherCondition.DoesNotExist:
+                            order.delete()
+                            return Response({'error': f'VoucherCondition {voucher_condition_id} does not exist'},
+                                            status=status.HTTP_400_BAD_REQUEST)
             except Exception as e:
                 print(f"Error: {e}")
                 return Response({'error': "There was an error occurred, plz try again later"},
                                 status=status.HTTP_400_BAD_REQUEST)
-            else:
-                return Response({'success': "Your order has been created"}, status=status.HTTP_201_CREATED)
+
         if request.method == "GET":
             orders = self.get_object().order_set.select_related('user')
             return Response(OrderSerializer(orders, many=True).data, status=status.HTTP_200_OK)
@@ -484,7 +473,8 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                 # Check if the address-phone is the default
                 if address_phone.default:
                     # Find another address-phone to set as default
-                    other_address_phone = UserAddressPhone.objects.filter(user_id=pk).exclude(id=address_phone_id).first()
+                    other_address_phone = UserAddressPhone.objects.filter(user_id=pk).exclude(
+                        id=address_phone_id).first()
                     if other_address_phone:
                         other_address_phone.default = True
                         other_address_phone.save()
@@ -492,7 +482,8 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                 # Set the user field to null instead of deleting the address
                 address_phone.user = None
                 address_phone.save()
-                return Response({'detail': 'Address-Phone disassociated successfully.'}, status=status.HTTP_204_NO_CONTENT)
+                return Response({'detail': 'Address-Phone disassociated successfully.'},
+                                status=status.HTTP_204_NO_CONTENT)
             except UserAddressPhone.DoesNotExist:
                 return Response({'detail': 'Address-Phone not found.'}, status=status.HTTP_404_NOT_FOUND)
         if request.method == 'PATCH':
@@ -523,6 +514,11 @@ class CategoryViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /categorie
     serializer_class = CategorySerializer
 
 
+class PaymentMethodViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /payment-method/
+    queryset = PaymentMethod.objects.filter(active=True)
+    serializer_class = PaymentMethodSerializer
+
+
 class ShippingViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /shipping-unit/
     queryset = Shipping.objects.filter(active=True)
     serializer_class = ShippingSerializer
@@ -531,6 +527,38 @@ class ShippingViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /shipping-
 class VoucherViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /vouchers/
     queryset = Voucher.objects.filter(active=True)
     serializer_class = VoucherSerializer
+
+
+class UpdateVoucherConditionRemainView(APIView):  # PATCH /vouchers/{voucher_id}/condition/{condition_id}/
+    permission_classes = [IsAuthenticated]  # Ensure user is authenticated
+
+    def patch(self, request, voucher_id, condition_id):
+        # Check if the authenticated user has the right to perform this action
+        if int(request.user.id) != request.user.id:  # This condition is a placeholder; update with actual logic
+            return Response({'detail': 'You do not have permission to perform this action.'},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            # Retrieve the voucher
+            voucher = Voucher.objects.get(id=voucher_id, active=True)
+        except Voucher.DoesNotExist:
+            return Response({"detail": "Voucher not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            # Retrieve the condition associated with the voucher
+            condition = voucher.voucher_conditions.get(id=condition_id)
+        except VoucherCondition.DoesNotExist:
+            return Response({"detail": "VoucherCondition not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Decrement the 'remain' value by 1
+        if condition.remain > 0:
+            condition.remain -= 1
+            condition.save()
+            # Serialize and return the updated voucher
+            serializer = VoucherSerializer(voucher)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        else:
+            return Response({"detail": "Remain value is already at 0."}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class VoucherConditionViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /voucher-conditions/
