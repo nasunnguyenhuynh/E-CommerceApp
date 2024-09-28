@@ -60,7 +60,8 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'password', 'avatar', 'first_name', 'last_name', 'email', 'birthday', 'is_vendor']
+        fields = ['id', 'username', 'password', 'avatar', 'first_name', 'last_name',
+                  'email', 'phone', 'birthday', 'is_vendor']
         extra_kwargs = {  # prevent the password field returned when creating a new user
             'password': {
                 'write_only': 'true'
@@ -187,10 +188,56 @@ class ProductSerializer(serializers.ModelSerializer):
 
 
 #                                              >>> OrderSerializer <<<
+#  user review once for product_id and once for shop_id
 class OrderDetailSerializer(serializers.ModelSerializer):
+    shop_id = serializers.SerializerMethodField()
+    shop_name = serializers.SerializerMethodField()
+    shop_img = serializers.SerializerMethodField()
+    product_name = serializers.SerializerMethodField()
+    product_img = serializers.SerializerMethodField()
+    color_name = serializers.SerializerMethodField()
+    product_review = serializers.SerializerMethodField()
+    shop_review = serializers.SerializerMethodField()
+
     class Meta:
         model = OrderDetail
-        fields = ['id', 'quantity', 'price', 'order_id', 'product_id', 'color_id']
+        fields = ['id', 'order_id', 'shop_id', 'shop_name', 'shop_img', 'product_id', 'product_name', 'product_img',
+                  'color_name', 'quantity', 'price', 'product_review', 'shop_review']
+
+    def get_shop_id(self, obj):
+        return obj.product.shop.id
+
+    def get_shop_name(self, obj):
+        return obj.product.shop.name
+
+    def get_shop_img(self, obj):
+        return obj.product.shop.image.url if obj.product.shop.image else None
+
+    def get_product_name(self, obj):
+        return obj.product.name
+
+    def get_product_img(self, obj):
+        # Get the first product image if it exists
+        product_images = obj.product.product_image.all()
+        if product_images.exists():
+            return product_images.first().image.url
+        return None
+
+    def get_color_name(self, obj):
+        # Check if the color relationship exists
+        if obj.color:
+            return obj.color.name
+        return None
+
+    def get_product_review(self, obj):
+        product_id = obj.product.id
+        order = obj.order
+        return Rating.objects.filter(order=order, product_id=product_id, is_shop=False).exists()
+
+    def get_shop_review(self, obj):
+        shop_id = obj.product.shop.id
+        order = obj.order
+        return Rating.objects.filter(order=order, product__shop_id=shop_id, is_shop=True).exists()
 
 
 class OrderSerializer(serializers.ModelSerializer):
@@ -210,8 +257,9 @@ class OrderSerializer(serializers.ModelSerializer):
             self.fields['order_details'] = serializers.SerializerMethodField()
 
     def get_product_review(self, obj):  # All products in order rated?
-        return True if Rating.objects.filter(order=obj, is_shop=False).count() == OrderDetail.objects.filter(
-            order=obj).count() else False
+        return True if Rating.objects. \
+                           filter(order=obj, is_shop=False).count() == OrderDetail.objects. \
+                           filter(order=obj).values('product').distinct().count() else False
 
     def get_shop_review(self, obj):  # All shops in order rated? (Only need 1 product from that shop to review)
         return True \

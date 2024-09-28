@@ -16,7 +16,6 @@ r.register('products', ProductViewSet, basename='products')
 
 urlpatterns = [
     path('', include(r.urls)),
-
     path('accounts/login/', user_login, name='login'),
     path('accounts/login-with-sms/', login_with_sms, name='login_with_sms'),
     path('accounts/login-with-google/', login_with_google, name='login_with_google'),

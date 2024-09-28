@@ -11,6 +11,7 @@ class User(AbstractUser):
                                      '/rylzc2jtcpgta2ilize3.jpg')
     is_vendor = models.BooleanField(default=False)
     birthday = models.DateField(null=True, blank=True)
+    phone = models.CharField(max_length=10, null=True, blank=True)
 
 
 class UserAddressPhone(models.Model):
@@ -80,7 +81,7 @@ class Product(BaseModel):  # Product can be duplicate
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='product_shop')
 
     def __str__(self):
-        return f'{self.shop.name} / {self.name}'
+        return self.name
 
 
 class ProductDetail(models.Model):
@@ -204,9 +205,6 @@ class OrderDetail(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     color = models.ForeignKey(ProductColor, on_delete=models.SET_NULL, null=True, blank=True)
-
-    # def __str__(self):
-    #     return f"Order {self.order.id} - Product {self.product.name}"
 
 
 class PaymentVNPAYDetail(models.Model):

@@ -116,7 +116,7 @@ def verify_otp(request):
                 cache.delete(phone)  # Delete OTP cache after used
                 if cache.get('is_login'):  # Delete cache_is_login
                     cache.delete('is_login')
-                    user = UserAddressPhone.objects.filter(phone=phone).get(user__is_active=True).user
+                    user = User.objects.get(phone=phone, is_active=True)
                     del request.session['phone']  # Delete session phone
                     access_token = get_access_token_login(user)
                     return Response({'success': 'Login successfully', 'access_token': access_token.token},
@@ -313,6 +313,8 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         if request.method == 'PATCH':
             shop_confirmation = get_object_or_404(ShopConfirmation, user_id=pk)
+            new_status = get_object_or_404(ShopConfirmationStatus, id=1)
+            shop_confirmation.status = new_status
             serializer = ShopConfirmationSerializer(shop_confirmation, data=request.data, partial=True)
             if serializer.is_valid():
                 serializer.save()
@@ -392,9 +394,8 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                     voucher_condition_ids = request.data.get('vouchers', [])
                     for voucher_condition_id in voucher_condition_ids:
                         try:
-                            # Retrieve VoucherCondition get_object_or_404(Order, pk=order_id, user_id=pk)
+                            # Retrieve VoucherCondition
                             voucher_condition = VoucherCondition.objects.get(id=voucher_condition_id)
-                            # voucher_condition = get_object_or_404(VoucherCondition, pk=voucher_condition_id)
 
                             # Validate VoucherCondition
                             if voucher_condition.min_order_amount and order.total_amount < voucher_condition.min_order_amount:
@@ -426,7 +427,8 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                 print(f"Error: {e}")
                 return Response({'error': "There was an error occurred, plz try again later"},
                                 status=status.HTTP_400_BAD_REQUEST)
-
+            return Response({'order_id': f"{order.id}", 'total_amount': f"{order.total_amount}"},
+                            status=status.HTTP_201_CREATED)
         if request.method == "GET":
             orders = self.get_object().order_set.select_related('user')
             return Response(OrderSerializer(orders, many=True).data, status=status.HTTP_200_OK)
@@ -512,6 +514,13 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
 class CategoryViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /categories/
     queryset = Category.objects.filter(active=True)
     serializer_class = CategorySerializer
+
+    @action(methods=['get'], url_path="products", detail=True)
+    def get_products_by_category(self, request, pk):
+        print(self.queryset)
+        products = Product.objects.filter(category_id=pk, active=True)
+        serializer = ProductSerializer(products, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class PaymentMethodViewset(viewsets.ViewSet, generics.ListAPIView):  # GET /payment-method/
@@ -807,6 +816,7 @@ class ProductViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIV
 
                 if Rating.objects.filter(order=order, is_shop=False, product=product).exists() or \
                         Comment.objects.filter(order=order, is_shop=False, product=product).exists():
+                    print(Rating.objects.filter(order=order, is_shop=False, product=product).exists())
                     return Response({"error": "Product has been reviewed"}, status=status.HTTP_400_BAD_REQUEST)
 
                 comment_data = serializer.validated_data['comment']
@@ -1068,8 +1078,8 @@ def hmacsha512(key, data):
 def payment(request):
     if request.method == 'POST':
         # Process input data and build url payment
-        order_id = request.data.get('order_id')
-        amount = request.data.get('amount')
+        order_id = int(request.data.get('order_id'))
+        amount = int(request.data.get('amount'))
         order_type = "billpayment"
         order_desc = 'Order payment for eCommerceApp'
         bank_code = ""

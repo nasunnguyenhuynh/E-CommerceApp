@@ -175,13 +175,35 @@ class StorageAdmin(admin.ModelAdmin):
 
 
 class StorageProductAdmin(admin.ModelAdmin):
-    list_display = ['storage', 'product', 'product_color', 'remain']
+    def get_list_display(self, request):
+        # Base fields to always show
+        fields = ['storage', 'product_name_display', 'product_color', 'remain']
+
+        # Add 'shop' field if the user is a superuser
+        if request.user.is_superuser:
+            fields.append('shop')
+
+        return fields
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
         return qs.filter(storage__shop__user=request.user)
+
+    def shop(self, obj):
+        return obj.storage.shop.name
+
+    shop.short_description = 'Shop'
+
+    def product_name_display(self, obj):
+        product_name = obj.product.name
+        # Truncate product name if longer than 50 characters
+        if len(product_name) > 50:
+            product_name = product_name[:50] + '...'
+        return format_html('<span title="{}">{}</span>', obj.product.name, product_name)
+
+    product_name_display.short_description = 'Product Name'
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "storage":  # Filter storage belongs to current user
@@ -437,6 +459,90 @@ class OrderAdmin(admin.ModelAdmin):
 class OrderDetailAdmin(admin.ModelAdmin):
     list_display = ['id', 'quantity', 'price', 'order', 'product', 'color']
 
+
+from django.urls import path
+from .views import *
+from django.utils.html import format_html
+from django.conf import settings
+from django.conf.urls.static import static
+from django.template.response import TemplateResponse
+from django.db.models import Count, Sum, F, ExpressionWrapper, DecimalField
+from django.db.models.functions import ExtractYear, ExtractMonth, ExtractDay, ExtractQuarter
+from django.utils.decorators import method_decorator
+from django.contrib.auth.decorators import user_passes_test
+
+
+class MyAdminStatsSite(admin.AdminSite):
+    site_header = 'E-Commerce Administrator'
+
+    def is_admin(user):
+        return user.is_active and user.is_superuser
+
+    def is_vendor_user(user):
+        return user.is_active and user.is_vendor
+
+    def get_urls(self):
+        return [path('statistic/', self.stats_view)] + super().get_urls()
+
+    @method_decorator(user_passes_test(is_admin))
+    def stats_view(self, request):
+        selected_shop = request.GET.get('shop')
+        start_date = request.GET.get('start_date')
+        end_date = request.GET.get('end_date')
+
+        shops = Shop.objects.all()
+        orders = Order.objects.all()
+
+        if start_date and end_date:
+            print(start_date)
+            orders = orders.filter(created_date__range=[start_date, end_date])
+
+        if selected_shop:
+            # Fetch and print the selected shop for debugging
+            print(f"Selected Shop ID: {selected_shop}")
+
+            # Fetch all products in the selected shop
+            products_in_shop = Product.objects.filter(shop_id=selected_shop)
+            # Aggregate revenue for each product in the selected shop
+            revenue_by_product = OrderDetail.objects.filter(
+                product__in=products_in_shop, order__in=orders
+            ).values(
+                'product__name'
+            ).annotate(
+                revenue=Sum(
+                    ExpressionWrapper(
+                        F('quantity') * F('product__price'),
+                        output_field=DecimalField()
+                    )
+                )
+            )
+            context = {
+                'stats': revenue_by_product,
+                'shops': shops,
+                'selected_shop': selected_shop,
+                'is_specific_shop': True
+            }
+        else:
+            # Aggregate revenue by shop if no specific shop is selected
+            revenue_by_shop = (OrderDetail.objects
+                               .filter(order__in=orders)
+                               .select_related('product')
+                               .values('product__shop_id', 'product__shop__name')
+                               .annotate(
+                total_revenue=Sum(F('quantity') * F('product__price'), output_field=DecimalField())
+            )
+                               .order_by('-total_revenue')
+                               )
+            context = {
+                'stats': revenue_by_shop,
+                'shops': shops,
+                'is_specific_shop': False
+            }
+
+        return TemplateResponse(request, 'admin/statistic.html', context)
+
+
+admin.site = MyAdminStatsSite(name='eCommerceApp')
 
 admin.site.register(User, UserAdmin)
 admin.site.register(UserAddressPhone, UserAdressPhoneAdmin)
