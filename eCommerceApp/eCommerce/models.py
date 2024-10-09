@@ -194,6 +194,7 @@ class Order(BaseModel):
     shipping = models.ForeignKey(Shipping, on_delete=models.PROTECT)
     user_address_phone = models.ForeignKey(UserAddressPhone, on_delete=models.PROTECT)
     order_voucher_condition = models.ManyToManyField(VoucherCondition, blank=True)
+    # order_voucher_condition = models.ManyToManyField(Voucher.voucher_conditions, blank=True)
 
     def __str__(self):
         return f"{self.pk}"

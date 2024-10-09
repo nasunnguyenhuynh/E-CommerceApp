@@ -85,7 +85,7 @@ INTERNAL_IPS = [
 ]
 
 CORS_ALLOW_ALL_ORIGINS = True
-CSRF_TRUSTED_ORIGINS = ['https://285a-2001-ee0-1b0a-721e-e035-3a1e-7943-35c2.ngrok-free.app', 'http://127.0.0.1:8000/']
+CSRF_TRUSTED_ORIGINS = ['https://4a22-14-169-90-75.ngrok-free.app', 'http://127.0.0.1:8000/']
 ROOT_URLCONF = 'eCommerceApp.urls'
 
 TEMPLATES = [
@@ -163,7 +163,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # VNPAY CONFIG
 VNPAY_TMN_CODE = os.getenv('VNPAY_TMN_CODE')  # Website ID in VNPAY System, get from config
 VNPAY_HASH_SECRET_KEY = os.getenv('VNPAY_HASH_SECRET_KEY')  # Secret key for create checksum,get from config
-VNPAY_RETURN_URL = 'https://8fe9-2403-e200-1a0-6d2f-95be-b062-3f57-6a06.ngrok-free.app/payment_return'  # get from config
+VNPAY_RETURN_URL = 'https://4a22-14-169-90-75.ngrok-free.app/payment_return'  # get from config
 VNPAY_PAYMENT_URL = 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html'  # get from config
 VNPAY_API_URL = 'https://sandbox.vnpayment.vn/merchant_webapi/api/transaction'
 

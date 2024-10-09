@@ -17,6 +17,7 @@ from django.contrib.auth import logout, authenticate
 from django.core.cache import cache
 import os
 from dotenv import load_dotenv
+from twilio.rest import Client
 
 load_dotenv()  # take environment variables from .env.
 from google.oauth2 import id_token
@@ -87,14 +88,14 @@ def login_with_sms(request):
             cache.set(phone, otp, timeout=OTP_EXPIRY_SECONDS)  # Create cache with key is phone to save OTP
             cache.set('is_login', True, timeout=OTP_EXPIRY_SECONDS)  # Create cache_is_login to verify
             # Send OTP to phone by Twilio
-            # account_sid = 'ACf3bd63d2afda19fdcb1a7ab22793a8b8'
-            # auth_token = '[AuthToken]'
+            # account_sid = os.environ["TWILIO_ACCOUNT_SID"]
+            # auth_token = os.environ["TWILIO_AUTH_TOKEN"]
             # client = Client(account_sid, auth_token)
             # message_body = f'DJANGO: Enter {otp} to verify account. OTP expires after 5 minutes.'
             # message = client.messages.create(
-            # from_='+12513090557',
-            # body=message_body,
-            # to=phone_number
+            #     from_='+19254447384',
+            #     body=message_body,
+            #     to='+84'
             # )
             return Response({'message': f'Your OTP is {otp}.'}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
