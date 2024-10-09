@@ -7,7 +7,7 @@ Active virtual environment
 	venv\Scripts\activate
 Install necessary package (setuptools: for No module named pkg_resources Error)
 
-	pip install django pymysql cloudinary pillow django-ckeditor djangorestframework drf-yasg django-oauth-toolkit django-debug-toolbar
+	pip install django pymysql cloudinary pillow django-ckeditor djangorestframework drf-yasg django-oauth-toolkit django-debug-toolbar python-dotenv setuptools twilio google-auth django-cors-headers
 Config and Login with Social Accounts
 
 	pip install django-allauth, django_extensions
