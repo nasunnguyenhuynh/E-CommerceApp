@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  db:
+    image: mysql:8.0   #get image from docker registry
+    container_name: mysql
+    environment:
+      - MYSQL_DATABASE=ecommerce
+      - MYSQL_ROOT_PASSWORD=Admin@123
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./ecommerce.sql:/docker-entrypoint-initdb.d/ecommerce.sql
+    ports:
+      - "3307:3306"
+    networks:
+      - app-network
+
+  web:
+    build:
+      context: .  # define scope will be built: start from docker-compose.yml
+      dockerfile: Dockerfile
+    container_name: django
+    environment:
+      - DATABASE_URL=mysql://root:Admin@123@mysql:3306/ecommerce
+      - DB_PORT=3306
+      - DB_HOST=db # connect "web" service to "db" service
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    networks:
+      - app-network
+volumes:
+  mysql_data:
+networks:
+  app-network:

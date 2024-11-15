@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.core.mail import EmailMessage
 from django.utils.html import mark_safe
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import Group
@@ -105,6 +106,17 @@ class ShopConfirmationAdmin(admin.ModelAdmin):
                     user=obj.user,
                     description=obj.shop_description
                 )
+                if obj.user.email:
+                    # Email subject and message
+                    subject = "Register shop successfully"
+                    temp_password = generate_random_password()
+                    message = f"Please access abc.com website and log in to your account with the password {temp_password} to view your shop."
+
+                    # Send email using Gmail API
+                    # send_gmail_email(subject, message, obj.user.email)
+                    email = EmailMessage(subject=subject, body=message, from_email="from@example.com",
+                                         to=["to@example.com"])
+                    email.send()
         else:
             if obj.status.status == 'Failed':
                 obj.active = False

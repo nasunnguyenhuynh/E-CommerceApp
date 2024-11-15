@@ -85,7 +85,7 @@ INTERNAL_IPS = [
 ]
 
 CORS_ALLOW_ALL_ORIGINS = True
-CSRF_TRUSTED_ORIGINS = ['https://4a22-14-169-90-75.ngrok-free.app', 'http://127.0.0.1:8000/']
+CSRF_TRUSTED_ORIGINS = ['http://0.0.0.0:8000/', 'http://127.0.0.1:8000/']
 ROOT_URLCONF = 'eCommerceApp.urls'
 
 TEMPLATES = [
@@ -111,11 +111,12 @@ WSGI_APPLICATION = 'eCommerceApp.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': os.getenv('DB_ENGINE'),
-        'NAME': os.getenv('DB_NAME'),
-        'USER': os.getenv('DB_USER'),
-        'PASSWORD': os.getenv('DB_PASSWORD'),
-        'HOST': '',
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'ecommerce',
+        'USER': 'root',
+        'PASSWORD': 'Admin@123',
+        'HOST': 'db',
+        'PORT': '3306',
     }
 }
 
@@ -159,6 +160,13 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+# SENDING EMAIL
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'  # SMTP config
+# Looking to send emails in production? Check out our Email API/SMTP product!
+EMAIL_HOST = 'sandbox.smtp.mailtrap.io'
+EMAIL_HOST_USER = '12f642f00829b1'
+EMAIL_HOST_PASSWORD = '4d0d409d63bbce'
+EMAIL_PORT = '2525'
 
 # VNPAY CONFIG
 VNPAY_TMN_CODE = os.getenv('VNPAY_TMN_CODE')  # Website ID in VNPAY System, get from config

@@ -7,8 +7,7 @@ from django.core.exceptions import ValidationError
 
 class User(AbstractUser):
     avatar = CloudinaryField('image',
-                             default='https://res.cloudinary.com/diwxda8bi/image/upload/v1718958489'
-                                     '/rylzc2jtcpgta2ilize3.jpg')
+                             default='https://res.cloudinary.com/diiopq4yg/image/upload/v1728921553/cld-sample.jpg')
     is_vendor = models.BooleanField(default=False)
     birthday = models.DateField(null=True, blank=True)
     phone = models.CharField(max_length=10, null=True, blank=True)
